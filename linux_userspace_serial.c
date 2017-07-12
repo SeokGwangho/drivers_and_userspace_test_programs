@@ -1,7 +1,16 @@
 /*
+Examples:
+linux-serial-test -s -e -p /dev/ttyO0 -b 3000000
+linux-serial-test -s -e -p /dev/ttyO0 -c -l 250
+linux-serial-test -s -e -p /dev/ttyO0 -b 115200 -o 5 -i 7
+linux-serial-test -y 0x55 -z 0x0 -p /dev/ttyO0 -b 3000000
 
 
-Usage: linux-serial-test [OPTION]
+
+
+
+Usage: 
+	linux-serial-test [OPTION]
 
   -h, --help
   -b, --baud        Baud rate, 115200, etc (115200 is default)
