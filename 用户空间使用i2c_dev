@@ -61,7 +61,12 @@ ioctl(fd, I2C_TIMEOUT,m);
 3．  设置从机地址
 ioctl(fd, I2C_SLAVE,addr);
 ioctl(fd, #defineI2C_SLAVE_FORCE, addr);
-在调用read()和write()函数之前必须设置从机地址。这两行都可以设置从机的地址，区别是第二行无论内核中是否已有驱动在使用这个地址都会成功，第一行则只在该地址空闲的情况下成功。由于i2c-dev创建的i2c_client不加入i2c_adapter的client列表，所以不能防止其它线程使用同一地址，也不能防止驱动模块占用同一地址。
+
+在调用read()和write()函数之前必须设置从机地址。这两行都可以设置从机的地址，区别是:
+第一行只在该地址空闲的情况下成功.
+第二行无论内核中是否已有驱动在使用这个地址都会成功.
+
+由于i2c-dev创建的i2c_client不加入i2c_adapter的client列表，所以不能防止其它线程使用同一地址，也不能防止驱动模块占用同一地址。
 
 4．  设置地址模式
 ioctl(file,I2C_TENBIT,select)
@@ -94,12 +99,14 @@ ioctl(file,I2C_FUNCS,（unsignedlong *）funcs)   获取的适配器功能保存
 
 6．  I2C层通信
 ioctl(file,I2C_RDWR,(structi2c_rdwr_ioctl_data *)msgset);
-这一行代码可以使用I2C协议和设备进行通信。它进行连续的读写，中间没有间歇。只有当适配器支持I2C_FUNC_I2C此命令才有效。参数是一个指针，指向一个结构体，它的定义如i2c_rdwr_ioctl_data
+这一行代码可以使用I2C协议和设备进行通信。它进行连续的读写，中间没有间歇。只有当适配器支持I2C_FUNC_I2C此命令才有效。
+参数是一个指针，指向一个结构体，它的定义如i2c_rdwr_ioctl_data
 struct i2c_rdwr_ioctl_data {
          structi2c_msg __user *msgs;      /* 指向i2c_msgs数组 */
-         __u32nmsgs;                                                                                /* 消息的个数 */
+         __u32nmsgs;                      /* 消息的个数 */
 };
-msgs[] 数组成员包含了指向各自缓冲区的指针。这个函数会根据是否在消息中的flags置位I2C_M_RD来对缓冲区进行读写。从机的地址以及是否使用10比特地址模式记录在每个消息中，忽略之前ioctl设置的结果。
+msgs[] 数组成员包含了指向各自缓冲区的指针。这个函数会根据是否在消息中的flags置位I2C_M_RD来对缓冲区进行读写。
+从机的地址以及是否使用10比特地址模式记录在每个消息中，忽略之前ioctl设置的结果。
 
 
 
@@ -132,7 +139,11 @@ struct i2c_smbus_ioctl_data {
 
 
 1.3.1   read()/write()
-通信的方式有两种，一种是使用操作普通文件的接口read()和write()。这两个函数间接调用了i2c_master_recv和i2c_master_send。但是在使用之前需要使用I2C_SLAVE设置从机地址，设置可能失败，需要检查返回值。这种通信过程进行I2C层的通信，一次只能进行一个方向的传输。
+通信的方式有两种，一种是使用操作普通文件的接口read()和write()。这两个函数间接调用了i2c_master_recv和i2c_master_send。
+但是在使用之前需要使用I2C_SLAVE设置从机地址，设置可能失败，需要检查返回值。这种通信过程进行I2C层的通信，一次只能进行一个方向的传输。
+
+
+
 下面的程序是ARM与E2PROM芯片通信的例子，如使用read()/write()与i2c设备通信
 #include <stdio.h>
 #include <sys/ioctl.h>
