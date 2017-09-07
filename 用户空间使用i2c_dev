@@ -59,8 +59,8 @@ ioctl(fd, I2C_TIMEOUT,m);
 设置SMBus的超时时间为m，单位为jiffies。
 
 3．  设置从机地址
-ioctl(fd, I2C_SLAVE,addr);
-ioctl(fd, #defineI2C_SLAVE_FORCE, addr);
+ioctl(fd, I2C_SLAVE, addr);
+ioctl(fd, I2C_SLAVE_FORCE, addr);
 
 在调用read()和write()函数之前必须设置从机地址。这两行都可以设置从机的地址，区别是:
 第一行只在该地址空闲的情况下成功.
