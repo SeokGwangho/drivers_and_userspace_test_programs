@@ -1,5 +1,6 @@
-用户空间使用i2c_dev
-
+//////////////////////////////////////////////////
+UserSpace使用i2c_dev
+//////////////////////////////////////////////////
 
 第1章 用户空间使用i2c_dev
 
@@ -8,12 +9,12 @@
 i2c适配器的设备节点是/dev/i2c-x，其中x是数字，代表适配器的编号。由于适配器编号是动态分配的（和注册次序有关），所以想了解哪一个适配器对应什么编号，可以查看/sys/class/i2c-dev/目录下的文件内容。
 
 
-1.1     前期准备
-       为了在用户空间的程序当中操作i2c适配器，必须在程序中包含以下两句：
+1.1 前期准备
+为了在用户空间的程序当中操作i2c适配器，必须在程序中包含以下两句：
 #include<linux/i2c-dev.h>
 #include<linux/i2c.h>
-这两个头文件中定义了之后需要用到的结构体和宏。
-然后就可以打开设备节点了。但是打开哪一个呢？因为适配器的编号并不固定。为此我们在中端中运行以下命令：
+
+这两个头文件中定义了之后需要用到的结构体和宏。然后就可以打开设备节点了。但是打开哪一个呢？因为适配器的编号并不固定。为此我们在中端中运行以下命令：
 
 [root@zlg /]# cat /sys/class/i2c-dev/i2c-0/name
 PNX4008-I2C0
@@ -21,7 +22,8 @@ PNX4008-I2C0
 PNX4008-I2C1
 [root@zlg /]# cat /sys/class/i2c-dev/i2c-2/name
 USB-I2C
-       如果我们想打开第二个适配器，刚好它的编号是1，对应的设备节点是/dev/i2c-1。那么可以用下面的方法打开它：
+
+如果我们想打开第二个适配器，刚好它的编号是1，对应的设备节点是/dev/i2c-1。那么可以用下面的方法打开它：
 int fd;
 if ((fd = open(＂/dev/i2c-1＂,O_RDWR))< 0) {
     /* 错误处理 */
@@ -29,26 +31,25 @@ if ((fd = open(＂/dev/i2c-1＂,O_RDWR))< 0) {
 }
 
 
-打开适配器对应的设备节点，i2c-dev为打开的线程建立一个i2c_client，但是这个i2c_client并不加到i2c_adapter的client链表当中。当用户关闭设备节点时，它自动被释放。
+打开适配器对应的设备节点，i2c-dev为打开的线程建立一个i2c_client，但是这个i2c_client并不加到i2c_adapter的client链表当中。
+当用户关闭设备节点时，它自动被释放。
 
 
 
 
 1.2     IOCTL控制
 查看include/linux/i2c-dev.h文件，可以看到i2c-dev支持的IOCTL命令。如i2c-dev IOCTL命令
-#define I2C_RETRIES                    0x0701     /*设置收不到ACK时的重试次数*/
-#define I2C_TIMEOUT                 	0x0702 		/* 设置超时时限的jiffies */
-#define I2C_SLAVE                       0x0703 /*设置从机地址 */
-#define I2C_SLAVE_FORCE        			0x0706  /* 强制设置从机地址 */
-#define I2C_TENBIT                      0x0704 /*选择地址位长:=0 for 7bit , != 0 for 10 bit */
-#define I2C_FUNCS                      0x0705 /*获取适配器支持的功能 */
-#define I2C_RDWR                        0x0707    /*Combined R/W transfer (one STOP only)  */
-#define I2C_PEC                            0x0708 /* != 0 to use PEC with SMBus */
-#define I2C_SMBUS                      0x0720     /*SMBus transfer  */
+#define I2C_RETRIES                 0x0701     /* 设置收不到ACK时的重试次数*/
+#define I2C_TIMEOUT                 0x0702     /* 设置超时时限的jiffies */
+#define I2C_SLAVE                   0x0703     /* 设置从机地址 */
+#define I2C_SLAVE_FORCE             0x0706     /* 强制设置从机地址 */
+#define I2C_TENBIT                  0x0704     /* 选择地址位长:=0 for 7bit , != 0 for 10 bit */
+#define I2C_FUNCS                   0x0705     /* 获取适配器支持的功能 */
+#define I2C_RDWR                    0x0707     /* Combined R/W transfer (one STOP only)  */
+#define I2C_PEC                     0x0708     /* != 0 to use PEC with SMBus */
+#define I2C_SMBUS                   0x0720     /* SMBus transfer  */
  
- 
- 
- 下面进行一一解释。
+解释:
 1．  设置重试次数
 ioctl(fd, I2C_RETRIES,m);
 这句话设置适配器收不到ACK时重试的次数为m。默认的重试次数为1。
@@ -67,17 +68,16 @@ ioctl(file,I2C_TENBIT,select)
 如果select不等于0选择10比特地址模式，如果等于0选择7比特模式，默认7比特。只有适配器支持I2C_FUNC_10BIT_ADDR，这个请求才是有效的。
 
 5．  获取适配器功能
-ioctl(file,I2C_FUNCS,（unsignedlong *）funcs)
-       获取的适配器功能保存在funcs中。各比特的含义如
+ioctl(file,I2C_FUNCS,（unsignedlong *）funcs)   获取的适配器功能保存在funcs中。各比特的含义如
 /* include/linux/i2c.h */
-#define I2C_FUNC_I2C                                                      0x00000001
+#define I2C_FUNC_I2C                                           0x00000001
 #define I2C_FUNC_10BIT_ADDR                                    0x00000002
 #define I2C_FUNC_PROTOCOL_MANGLING              0x00000004/*I2C_M_{REV_DIR_ADDR,NOSTART,..}*/
-#define I2C_FUNC_SMBUS_PEC                                     0x00000008
+#define I2C_FUNC_SMBUS_PEC                      0x00000008
 #define I2C_FUNC_SMBUS_BLOCK_PROC_CALL     0x00008000 /* SMBus 2.0                                       */
-#define I2C_FUNC_SMBUS_QUICK                               0x00010000
-#define I2C_FUNC_SMBUS_READ_BYTE                     0x00020000
-#define I2C_FUNC_SMBUS_WRITE_BYTE                             0x00040000
+#define I2C_FUNC_SMBUS_QUICK                    0x00010000
+#define I2C_FUNC_SMBUS_READ_BYTE                0x00020000
+#define I2C_FUNC_SMBUS_WRITE_BYTE             0x00040000
 #define I2C_FUNC_SMBUS_READ_BYTE_DATA        0x00080000
 #define I2C_FUNC_SMBUS_WRITE_BYTE_DATA      0x00100000
 #define I2C_FUNC_SMBUS_READ_WORD_DATA      0x00200000
@@ -85,9 +85,9 @@ ioctl(file,I2C_FUNCS,（unsignedlong *）funcs)
 #define I2C_FUNC_SMBUS_PROC_CALL                     0x00800000
 #define I2C_FUNC_SMBUS_READ_BLOCK_DATA    0x01000000
 #define I2C_FUNC_SMBUS_WRITE_BLOCK_DATA 0x02000000
-#define I2C_FUNC_SMBUS_READ_I2C_BLOCK                  0x04000000/* I2C-like block xfer                           */
-#define I2C_FUNC_SMBUS_WRITE_I2C_BLOCK        0x08000000 /* w/ 1-byte reg. addr.                           */
-#define I2C_FUNC_SMBUS_READ_I2C_BLOCK_2     0x10000000 /* I2C-like block xfer                           */
+#define I2C_FUNC_SMBUS_READ_I2C_BLOCK      0x04000000 /* I2C-like block xfer                           */
+#define I2C_FUNC_SMBUS_WRITE_I2C_BLOCK     0x08000000 /* w/ 1-byte reg. addr.                           */
+#define I2C_FUNC_SMBUS_READ_I2C_BLOCK_2    0x10000000 /* I2C-like block xfer                           */
 #define I2C_FUNC_SMBUS_WRITE_I2C_BLOCK_2   0x20000000 /* w/ 2-byte reg. addr.                           */
 
 
