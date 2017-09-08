@@ -1,0 +1,175 @@
+/*
+Block Device
+ブロックデバイスとはハードディスクのようにブロック(セクタ)単位でデータの入出力を取扱い、
+かつキューによるバッファ処理を行うデバイスである。 以下に簡単なRAMディスクドライバの例を示す。
+*/
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/blkdev.h>
+
+#define MODNAME "modtest"
+
+#define MINOR_COUNT 1 // 接続するマイナー番号数
+
+// ブロックデバイス番号
+static int modtest_major = 0;
+
+// リクエストキュー
+static struct request_queue *modtest_queue;
+static spinlock_t modtest_lock;
+
+// 仮想ディスク
+struct gendisk *modtest_gd;
+#define SECT_SIZE 512 // 仮想ディスクのセクタサイズ(byte)
+#define SECT_NUM 2048 // 仮想ディスクのセクタ数
+#define DISK_SIZE ( SECT_SIZE * SECT_NUM ) // ディスクサイズ(byte)
+char* buffer = NULL;
+
+
+//
+// リクエストキューの処理
+//
+// 仮想ディスクに対して入出力がおこなわれると呼び出される
+//
+static void modtest_request( struct request_queue *queue )
+{
+    struct request *req;
+    int sect, sects;
+    int offset, len;
+    int msg = 0;
+
+    // キューから次のリクエストを取得
+    while( ( req = elv_next_request( queue ) ) != NULL ){
+
+        // ファイルシステムに対するリクエストでない
+        // 例えば scsi コマンドなどは処理しない
+        // ( linux/blkdev.h の enum rq_cmd_type_bits を参照 )
+	if( ! blk_fs_request( req ) ){
+            printk( KERN_NOTICE "skip no fs request\n" );
+	    end_request( req, 0 );
+	    continue;
+	}
+
+        sect = req->sector;
+        sects = req->current_nr_sectors;
+
+        offset = sect * SECT_SIZE;
+        len = sects * SECT_SIZE;
+
+        if( offset + len > DISK_SIZE ){
+            printk( KERN_WARNING "buffer overflow\n");
+            return;
+        }
+
+        if( msg )
+            printk( KERN_INFO "modtest_request sec = %u, secs = %u, offset = %u, len = %u ", 
+                    sect, sects, offset, len );
+
+        // 仮想ディスクへの書き込み
+        if( rq_data_dir( req ) == WRITE ){
+            if( msg ) printk( KERN_INFO "write\n" );
+            memcpy( buffer + offset, req->buffer, len );
+        }
+
+        // 仮想ディスクからの読み込み
+        else{
+            if( msg ) printk( KERN_INFO "read\n" );
+            memcpy( req->buffer, buffer + offset, len );
+        }
+
+        // リクエスト完了処理( 0: 失敗,  1: 成功 )
+        end_request( req, 1 );
+    }
+}
+
+
+// ファイルオペレーション構造体
+// スペシャルファイルに対してオープンなどの処理を行ったときに呼び出す関数を登録する
+static struct block_device_operations modtest_fops = {
+    .owner   = THIS_MODULE,
+    .open    = NULL,
+    .release = NULL,
+    .ioctl   = NULL,
+};
+
+
+// モジュール初期化
+static int __init modtest_module_init( void )
+{
+    // バッファ取得
+    buffer = vmalloc( DISK_SIZE );
+    if( buffer == NULL ) return -ENOMEM;
+
+    // ブロックデバイス番号の動的取得
+    modtest_major = register_blkdev( 0, MODNAME );
+    if( modtest_major <= 0 ){
+	printk( KERN_WARNING "register_blkdev failed\n" );
+        return modtest_major;
+    }
+
+    // キューの作成
+    spin_lock_init( &modtest_lock );
+    modtest_queue = blk_init_queue(
+        modtest_request, // キューに対して入出力が生じたら呼び出される関数
+        &modtest_lock );
+    if( ! modtest_queue ){
+	printk( KERN_WARNING "blk_init_queue failed\n" );        
+        unregister_blkdev( modtest_major, MODNAME );
+        return -ENOMEM;
+    }
+    blk_queue_hardsect_size( modtest_queue, SECT_SIZE );
+
+    // 仮想的な Generic ディスクの作成
+    modtest_gd = alloc_disk( MINOR_COUNT );
+    if( ! modtest_gd ){
+	printk( KERN_WARNING "alloc_disk failed\n" );        
+        blk_cleanup_queue( modtest_queue );
+        unregister_blkdev( modtest_major, MODNAME );
+        return -ENOMEM;
+    }
+    sprintf( modtest_gd->disk_name, "%s", MODNAME ); // スペシャルファイル名( /dev/modtest )
+    modtest_gd->queue = modtest_queue; // キューとブロックデバイスを結びつける
+    modtest_gd->major = modtest_major;
+    modtest_gd->first_minor = 0;
+    modtest_gd->fops = &modtest_fops;  // ディスクをオープンしたときなどに呼び出される関数
+    set_capacity( modtest_gd, SECT_NUM );
+
+    // 仮想ディスクの登録
+    // スペシャルファイル( /dev/modtest )は自動的に /dev に作られる
+    add_disk( modtest_gd );
+
+    printk( KERN_INFO "modtest is loaded\n" );
+    printk( KERN_INFO "major = %d\n", modtest_major );
+    printk( KERN_INFO "bufsize = %d\n", DISK_SIZE );
+
+    return 0;
+}
+
+
+//  モジュール解放
+static void __exit modtest_module_exit( void )
+{
+    // Generic ディスク削除
+    // スペシャルファイル ( /dev/modtest )は自動的に /dev から削除される
+    del_gendisk( modtest_gd );
+    put_disk( modtest_gd );
+
+    // キューの削除
+    blk_cleanup_queue( modtest_queue );
+
+    // デバイス番号の返却
+    unregister_blkdev( modtest_major, MODNAME );
+
+    // バッファ解放
+    vfree( buffer );
+
+    printk( KERN_INFO "modtest is removed\n" );
+}
+	
+
+module_init( modtest_module_init );
+module_exit( modtest_module_exit );
+
+MODULE_DESCRIPTION( MODNAME );
+MODULE_LICENSE( "GPL2" );
