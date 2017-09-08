@@ -1,6 +1,12 @@
 #define PROCREG_DIR             "myownproc"
+#define MAX_MACLIST_LENGTH      1024
 
-struct proc_dir_entry *procRegDir;
+struct proc_dir_entry         *procRegDir;
+static struct proc_dir_entry  *entry_wl_beacon_mac;
+static char                   *maclistbuffer;
+static int mac_index;
+static int mac_next = 0;
+static char fifo_from_user = 0;
 
 static const struct file_operations maclist_proc_fops = {
     .owner = THIS_MODULE,
@@ -10,15 +16,6 @@ static const struct file_operations maclist_proc_fops = {
     .llseek = seq_lseek,
     .release = single_release,
 };
-
-#define MAX_MACLIST_LENGTH  1024
-
-static struct proc_dir_entry *entry_wl_beacon_mac;
-static char *maclistbuffer;
-static int mac_index;
-static int mac_next = 0;
-static char fifo_from_user = 0;
-
 
 UCHAR GLOBAL_AddrLocalNum = 0;
 UCHAR GLOBAL_AddrLocal[MAX_MCAST_LIST_SIZE][6];
@@ -72,24 +69,22 @@ static ssize_t maclist_proc_write(struct file *file, const char *buffer, size_t 
 
 int wl_proc_init(void)
 {
-    if (procRegDir == NULL)
+    if (procRegDir == NULL) {
         procRegDir = proc_mkdir(PROCREG_DIR, NULL);
-        #if 1
         maclistbuffer = (char *)vmalloc(MAX_MACLIST_LENGTH);
+     
         if(!maclistbuffer) {
             return -ENOMEM;
         } else {
-         memset(maclistbuffer,0,MAX_MACLIST_LENGTH);
-         entry_wl_beacon_mac = proc_create("beaconmaclist", 0x0644, procRegDir, &maclist_proc_fops);
-         if(entry_wl_beacon_mac) {
-              mac_index = 0;
-              mac_next = 0;
-        } 
-        else {
-            vfree(maclistbuffer);
-        }
+             memset(maclistbuffer,0,MAX_MACLIST_LENGTH);
+             entry_wl_beacon_mac = proc_create("beaconmaclist", 0x0644, procRegDir, &maclist_proc_fops);
+             if(entry_wl_beacon_mac) {
+                  mac_index = 0;
+                  mac_next = 0;
+             } else {
+                vfree(maclistbuffer);
+             }
     }
-    #endif 
     return 0;
 }
 
