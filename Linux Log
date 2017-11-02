@@ -1,0 +1,42 @@
+一、syslogd和klogd
+syslogd与syslog配套使用，主要用于daemon输出log。
+Klogd读/proc/kmsg，保存的是kernel log。Klogd启动时有一个-f选项，用于指定保存kernel log的文件。
+如果没有指定，会发送到syslog，由syslog统一保存。
+
+
+
+二、daemon函数
+调用daemon函数可用于将程序转入后台，并断开与终端的标准输入输出连接。
+daemon(0, 0);  // 参数定义看查看man文档
+假设有一个包含printf的可执行文件test。
+./test          // 能看到printf
+./test &       // 能看到printf
+Test中如果调用了daemon(0, 0)， 那么与标准输入输出的连接就断了，看不到printf。
+
+
+
+
+三、/dev/ptmx
+Ptmx是虚拟串口终端，用于进程间通讯。主端打开/dev/ptmx，得到fd实例后，系统会在/dev/pts目录下生成这个实例的对端设备。对端设备的名称可由ptsname得到。
+char *ptsname(int fd);
+得到对端设备名后，主端需要调用grantpt和unlockpt。这两个函数一个与设置对端文件权限有关，一个用于unlock对端设备。之后，对端进程打开该实例，就能与主端通信了。
+
+
+
+
+四、Android中的logwrapper
+logwrapper是android中的工具，与logcat配套使用，可用于native进程的log输出。Logwrapper执行fork生成子进程，父子进程通过/dev/ptmx通信。
+子进程打开ptmx虚拟串口终端后，会将其设置成标准输出和错误输出，然后调用execvp执行想要执行的进程。
+由于使用的是execvp，所以子进程能继承logwrapper中设置的标准输出和错误输出。
+父进程等在/dev/pts的另一端，得到子进程发送的数据后调用log函数转发到logcat。
+
+注一：设置标准输入输出的方法：
+        dup2(fd, 1);
+        dup2(fd, 2);
+
+
+
+五、Android中syslog的实现
+Android中没有syslogd和klogd，但为了兼容使用syslog的程序，在bionic目录下有syslog函数的实现。
+这里的syslog函数会将打印内容输出到/dev/log，即logcat中；
+也有版本是输出到/dev/kmsg，也就是最终调用prink作为内核log输出。
