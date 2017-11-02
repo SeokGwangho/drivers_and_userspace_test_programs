@@ -3,7 +3,8 @@ syslogd与syslog配套使用，主要用于daemon输出log。
 Klogd读/proc/kmsg，保存的是kernel log。Klogd启动时有一个-f选项，用于指定保存kernel log的文件。
 如果没有指定，会发送到syslog，由syslog统一保存。
 
-
+   
+kernel log  ---> /proc/kmsg ---> klogd ---> syslog
 
 二、daemon函数
 调用daemon函数可用于将程序转入后台，并断开与终端的标准输入输出连接。
@@ -17,9 +18,11 @@ Test中如果调用了daemon(0, 0)， 那么与标准输入输出的连接就�
 
 
 三、/dev/ptmx
-Ptmx是虚拟串口终端，用于进程间通讯。主端打开/dev/ptmx，得到fd实例后，系统会在/dev/pts目录下生成这个实例的对端设备。对端设备的名称可由ptsname得到。
-char *ptsname(int fd);
-得到对端设备名后，主端需要调用grantpt和unlockpt。这两个函数一个与设置对端文件权限有关，一个用于unlock对端设备。之后，对端进程打开该实例，就能与主端通信了。
+Ptmx是虚拟串口终端，用于  进程间  通讯。[主端进程] <---> [对端进程] 通讯...
+
+[主端]打开/dev/ptmx，得到fd实例后，系统会在/dev/pts目录下生成这个实例的[对端]设备。对端设备的名称可由ptsname得到: char *ptsname(int fd);
+得到[对端]设备名后，[主端]需要调用grantpt和unlockpt。这两个函数一个与设置对端文件权限有关，一个用于unlock对端设备。
+之后，[对端]进程打开该实例([对端]设备名)，就能与[主端]通信了。
 
 
 
