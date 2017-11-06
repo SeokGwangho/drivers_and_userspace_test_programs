@@ -43,3 +43,6 @@ logwrapper是android中的工具，与logcat配套使用，可用于native进程
 Android中没有syslogd和klogd，但为了兼容使用syslog的程序，在bionic目录下有syslog函数的实现。
 这里的syslog函数会将打印内容输出到/dev/log，即logcat中；
 也有版本是输出到/dev/kmsg，也就是最终调用prink作为内核log输出。
+
+
+adb logcat -v process | grep 1234              //1234是进程PID
