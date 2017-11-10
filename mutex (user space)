@@ -1,0 +1,95 @@
+#include <pthread.h>    
+#include <stdio.h>    
+    
+pthread_mutex_t mutex;    
+  
+voidvoid *print_msg(voidvoid *arg)  
+{    
+    int i=0;    
+    pthread_mutex_lock(&mutex);    
+    for(i=0; i<15; i++) {    
+        printf("output : %d\n", i);    
+        usleep(100);    
+    }    
+    pthread_mutex_unlock(&mutex);    
+}    
+  
+int main(int argc, charchar **argv)  
+{    
+    pthread_t id1;    
+    pthread_t id2;    
+      
+    pthread_mutex_init(&mutex, NULL);   
+       
+    pthread_create(&id1, NULL, print_msg, NULL);    
+    pthread_create(&id2, NULL, print_msg, NULL);   
+       
+    pthread_join(id1, NULL);    
+    pthread_join(id2, NULL);   
+       
+    pthread_mutex_destroy(&mutex);    
+      
+    return 0;    
+}
+
+
+
+////////////////////////////////////////////////////////////////
+    1）互斥锁的特性
+        互斥锁，是一种信号量，常用来防止两个线程在同一时刻访问相同的共享资源。它有以下三个特性:
+        唯一性：如果一个线程锁定了一个互斥量，在它解除锁定之前，没有其他线程可以锁定这个互斥量；
+        原子性：把一个互斥量锁定为一个原子操作，这意味着操作系统（或pthread函数库）保证了如果一个线程锁定了一个互斥量，没有其他线程在同一时间可以成功锁定这个互斥量；    
+        非繁忙等待：如果一个线程已经锁定了一个互斥量，第二个线程又试图去锁定这个互斥量，则第二个线程将被挂起（不占用任何cpu资源），直到第一个线程解除对这个互斥量的锁定为止，第二个线程则被唤醒并继续执行，同时锁定这个互斥量。
+    2）互斥锁的作用域
+        互斥锁一般用在线程间，当然可以通过设置互斥锁的属性让它在进程间使用。
+        
+二、函数说明
+    头文件：#include <pthread.h>
+    1）初始化互斥锁
+        int  pthread_mutex_init(pthread_mutex_t *mp, const pthread_mutexattr_t *mattr)
+        参数：
+            mp   :互斥锁地址    
+            mattr:属性，通常默认NULL，也可以通过第二点介绍的函数设置mattr的值。
+        函数说明：
+            初始化互斥锁之前，必须将其所在的内存清零。如果互斥锁已初始化，则它会处于未锁定状态。
+    2）锁的属性
+        pthread_mutexattr_init(pthread_mutexattr_t *mattr)
+        互斥锁属性可以由该函数来初始化，然后再调用其他的函数来设置其属性。       
+        int pthread_mutexattr_setpshared(pthread_mutexattr_t *mattr, int pshared)
+        int pthread_mutexattr_getshared(pthread_mutexattr_t *mattr,int *pshared) 
+        可以指定是该进程与其他进程的同步还是同一进程内不同的线程之间的同步。可以设置为PTHREAD_PROCESS_SHARE和PTHREAD_PROCESS_PRIVATE。默认是后者，表示进程内使用锁。        
+        init pthread_mutexattr_settype(pthread_mutexattr_t *attr , int type)
+        init pthread_mutexattr_gettype(pthread_mutexattr_t *attr , int *type)   
+        互斥锁的类型,有以下几个取值空间：
+        PTHREAD_MUTEX_TIMED_NP，这是缺省值，也就是普通锁。当一个线程加锁以后，其余请求锁的线程将形成一个等待队列，并在解锁后按优先级获得锁。这种锁策略保证了资源分配的公平性。
+        PTHREAD_MUTEX_RECURSIVE_NP，嵌套锁，允许同一个线程对同一个锁成功获得多次，并通过多次unlock解锁。如果是不同线程请求，则在加锁线程解锁时重新竞争。
+        PTHREAD_MUTEX_ERRORCHECK_NP，检错锁，如果同一个线程请求同一个锁，则返回EDEADLK，否则与PTHREAD_MUTEX_TIMED_NP类型动作相同。这样就保证当不允许多次加锁时不会出现最简单情况下的死锁。
+        PTHREAD_MUTEX_ADAPTIVE_NP，适应锁，动作最简单的锁类型，仅等待解锁后重新竞争。        
+    2）锁定互斥锁
+        int pthread_mutex_lock(pthread_mutex_t *mutex)
+        函数说明：
+            当pthread_mutex_lock() 返回时，该互斥锁已被锁定。调用线程是该互斥锁的属主。如果该互斥锁已被另一个线程锁定和拥有，则调用线程将阻塞，直到该互斥锁变为可用为止。。
+        返回值：
+            pthread_mutex_lock() 在成功完成之后会返回零。其他任何返回值都表示出现了错误。如果出现以下任一情况，该函数将失败并返回对应的值。
+            EAGAIN：由于已超出了互斥锁递归锁定的最大次数，因此无法获取该互斥锁。
+            EDEADLK：当前线程已经拥有互斥锁。
+    3）解除锁定互斥锁
+        int pthread_mutex_unlock(pthread_mutex_t *mutex);
+        函数说明：
+            pthread_mutex_unlock() 可释放 mutex 引用的互斥锁对象。互斥锁的释放方式取决于互斥锁的类型属性。如果调用 pthread_mutex_unlock() 时有多个线程被 mutex 对象阻塞，则互斥锁变为可用时调度策略可确定获取该互斥锁的线程。对于 PTHREAD_MUTEX_RECURSIVE 类型的互斥锁，当计数达到零并且调用线程不再对该互斥锁进行任何锁定时，该互斥锁将变为可用。
+        返回值：
+            pthread_mutex_unlock() 在成功完成之后会返回零。其他任何返回值都表示出现了错误。如果出现以下情况，该函数将失败并返回对应的值。
+            EPERM :当前线程不拥有互斥锁。
+    4）使用非阻塞互斥锁锁定
+        int pthread_mutex_trylock(pthread_mutex_t *mutex);
+        函数说明：
+        pthread_mutex_trylock() 是 pthread_mutex_lock() 的非阻塞版本。如果 mutex 所引用的互斥对象当前被任何线程（包括当前线程）锁定，则将立即返回该调用。否则，该互斥锁将处于锁定状态，调用线程是其属主。        
+        返回值：
+            pthread_mutex_trylock() 在成功完成之后会返回零。其他任何返回值都表示出现了错误。如果出现以下任一情况，该函数将失败并返回对应的值。
+            EBUSY :由于 mutex 所指向的互斥锁已锁定，因此无法获取该互斥锁。
+            EAGAIN：由于已超出了 mutex 的递归锁定最大次数，因此无法获取该互斥锁。
+    5）销毁互斥锁
+        int pthread_mutex_destroy(pthread_mutex_t *mp); /*请注意，没有释放用来存储互斥锁的空间。*/
+        返回值：
+            pthread_mutex_destroy() 在成功完成之后会返回零。其他任何返回值都表示出现了错误。如果出现以下任一情况，该函数将失败并返回对应的值。
+            EINVAL: mp 指定的值不会引用已初始化的互斥锁对象。  
