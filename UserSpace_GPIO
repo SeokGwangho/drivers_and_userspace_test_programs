@@ -1,0 +1,39 @@
+用户空间操作GPIO
+ 
+内核中已实现了gpio驱动，而且在内核空间可以正常使用 gpio_request, gpio_direction_output, gpio_free 等 gpiolib中提供的函数
+想在用户空间中对gpio进行操作，怎么办？
+ 
+命令行
+echo 28 > /sys/class/gpio/export  
+echo "out" > /sys/class/gpio/gpio28/direction  
+
+echo 1 > /sys/class/gpio/gpio28/value  
+echo 28 > /sys/class/gpio/export
+
+echo "out" > /sys/class/gpio/gpio28/direction
+echo 1 > /sys/class/gpio/gpio28/value
+
+既然找到了上面的接口，那么怎么在用户空间的程序使用？
+
+方法1.使用system()
+
+        char setCmd[100]={0};    sprintf(setCmd, "echo %d > /sys/class/gpio/export",RUN_LED);  system(setCmd);    memset(setCmd, 0, sizeof(setCmd));  sprintf(setCmd, "echo \"out\" > /sys/class/gpio/gpio%d/direction",RUN_LED);  printf("VALUE:%s\n",setCmd);  system(setCmd);  memset(setCmd, 0, sizeof(setCmd));  sprintf(setCmd, "echo %d > /sys/class/gpio/gpio%d/value",onoff,RUN_LED);  system(setCmd);          char setCmd[100]={0};
+
+        sprintf(setCmd, "echo %d > /sys/class/gpio/export",RUN_LED);
+        system(setCmd);
+
+        memset(setCmd, 0, sizeof(setCmd));
+        sprintf(setCmd, "echo \"out\" > /sys/class/gpio/gpio%d/direction",RUN_LED);
+        printf("VALUE:%s\n",setCmd);
+        system(setCmd);
+        memset(setCmd, 0, sizeof(setCmd));
+        sprintf(setCmd, "echo %d > /sys/class/gpio/gpio%d/value",onoff,RUN_LED);
+        system(setCmd);
+
+
+
+方法2.将几个echo写成脚本，使用execve()调用脚本execve("gpio.sh", "/etc", NULL);
+这个方法个人感觉没方法1好，所以具体实现略
+
+
+方法3.比较正式的用法，
