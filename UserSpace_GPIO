@@ -283,3 +283,8 @@ int main(int argc, char **argv, char **envp)
 }  
 
 
+
+3. 在应用层使用mmap函数在应用层获得GPIO物理基地址对应的虚拟地址指针,然后使用这个指针来读写GPIO寄存器
+
+char dev_name[] = "/dev/mem";   
+          GPIO_REGISTER  *gpio_base;             fd  =  open(dev_name,O_RDWR);             if(fd<0){                    printf("open %s is error\n",dev_name);                    return -1 ;             }             gpio_base = (GPIO_REGISTER *)mmap( 0, 0x32, PROT_READ | PROT_WRITE, MAP_SHARED,fd, 0x40060000 );            if(gpio_base == NULL){                     printf("gpio base mmap is error\n");                     close(fd);                     return -1;             }             gpio_base->or  = (gpio_base->or & 0x7fffffff);  
