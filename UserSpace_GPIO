@@ -1,3 +1,9 @@
+嵌入式Linux下面查看gpio使用情况:
+mount -t debugfs debugfs /tmpcat /tmp/gpio
+
+
+
+
 用户空间操作GPIO
  
 内核中已实现了gpio驱动，而且在内核空间可以正常使用 gpio_request, gpio_direction_output, gpio_free 等 gpiolib中提供的函数
