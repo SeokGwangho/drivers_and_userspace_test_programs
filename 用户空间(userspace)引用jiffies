@@ -1,6 +1,18 @@
 用户空间(userspace)引用jiffies
 
 此方法可以推广，用以引用任何内核中的资源。
+-----------------------------------------------------------------
+在内核中通过/proc/kallsyms获得符号的地址
+
+Linux内核符号表/proc/kallsyms的形成过程：
+./scripts/kallsyms.c负责生成System.map
+./kernel/kallsyms.c负责生成/proc/kallsyms
+./scripts/kallsyms.c解析vmlinux(.tmp_vmlinux)生成kallsyms.S(.tmp_kallsyms.S)，然后内核编译过程中将kallsyms.S(内核符号表)编入内核镜像uImage
+内核启动后./kernel/kallsyms.c解析uImage形成/proc/kallsyms
+
+/proc/kallsyms包含了内核中的函数符号(包括没有EXPORT_SYMBOL)、全局变量(用EXPORT_SYMBOL导出的全局变量)。
+----------------------------------------------------------------
+
 
 
 
