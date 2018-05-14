@@ -1,0 +1,537 @@
+------------------------------------------------------------------------------------------------------------
+lk--->linux kernel:
+------------------------------------------------------------------------------------------------------------
+Preloader 运行在ISRAM， 完成 DRAM 的初始化后，再将lk载入DRAM中， 最后通过特殊sys call手段实现跳转到lk的执行入口，正式进入lk初始化阶段.
+
+一、lk执行入口：
+位于.text.boot 这个section(段)，具体定义位置为：
+
+./lk/arch/arm/system-onesegment.ld:10:	.text.boot : { *(.text.boot) }
+./lk/arch/arm/system-twosegment.ld:10:	.text.boot : { *(.text.boot) }
+
+该段的代码执行入口是crt0.S文件，位置为：
+./lk/arch/arm/crt0.S
+
+crt0.S 中会经过一系列的初始化准备操作，最终跳转到C代码入口kmain函数开始执行，这个是 我们需要重点分析关注的，kmain的位置：
+./lk/kernel/main.c
+
+
+lk--->linux kernel的时序图： 参考文件夹下的图片。
+
+------------------------------------------------------------------------------------------------------------
+ 二、源码分析：
+------------------------------------------------------------------------------------------------------------
+1、crt0.S
+
+.section ".text.boot"
+...
+.Lstack_setup:
+	/* ==set up the stack for irq, fi==q, abort, undefined, system/user, and lastly supervisor mode */
+	mrs     r0, cpsr
+	bic     r0, r0, #0x1f
+
+	ldr		r2, =abort_stack_top
+	orr     r1, r0, #0x12 // irq
+	msr     cpsr_c, r1
+	ldr		r13, =irq_save_spot		/* save a pointer to a temporary dumping spot used during irq delivery */
+	    
+	orr     r1, r0, #0x11 // fiq
+	msr     cpsr_c, r1
+	mov		sp, r2
+	            
+	orr     r1, r0, #0x17 // abort
+	msr     cpsr_c, r1
+	mov		sp, r2
+	    
+	orr     r1, r0, #0x1b // undefined
+	msr     cpsr_c, r1
+	mov		sp, r2
+	    
+	orr     r1, r0, #0x1f // system
+	msr     cpsr_c, r1
+	mov		sp, r2
+
+	orr		r1, r0, #0x13 // supervisor
+	msr		cpsr_c, r1
+	mov		sp, r2
+...
+
+	bl		kmain
+
+crt0.S 小结：
+
+这里主要干的事情就是建立fiq/irq/abort等各种模式的stack，初始化向量表，然后切换到管理模式（pre-loader运行在EL3, lk运行在EL1），最后跳转到C代码入口 kmain 执行.
+
+-------------------------------
+2、kmain ：
+-------------------------------
+void kmain(void)
+{
+	boot_time = get_timer(0);
+
+	/* 早期初始化线程池的上下文，包括运行队列、线程链表的建立等，
+	   lk架构支持多线程，但是此阶段只有一个cpu处于online，所以也只有一条代码执行路径.
+	*/
+	thread_init_early();
+
+	/* 架构初始化，包括DRAM,MMU初始化使能，使能协处理器，
+	   preloader运行在ISRAM，属于物理地址，而lk运行在DRAM，可以选择开启MMU或者关闭，开启MMU可以加速lk的加载过程.
+	*/
+	arch_early_init();
+
+	/*
+	  平台硬件早期初始化，包括irq、timer，wdt，uart，led，pmic，i2c，gpio等,
+	   初始化平台硬件，建立lk基本运行环境。
+	*/
+	platform_early_init();
+
+	boot_time = get_timer(0);
+
+	// 这个是保留的空函数.
+	target_early_init();
+
+	dprintf(CRITICAL, "welcome to lk\n\n");
+	
+	/*
+	  执行定义在system-onesegment.ld 描述段中的构造函数，不太清楚具体机制：
+	__ctor_list = .;
+	.ctors : { *(.ctors) }
+	__ctor_end = .;
+	*/
+	call_constructors();
+
+	//内核堆链表上下文初始化等.
+	heap_init();
+
+	// 线程池初始化,前提是PLATFORM_HAS_DYNAMIC_TIMER需要支持.
+	thread_init();
+
+	// dpc系统是什么？据说是一个类似work_queue的东东，dpc的简称是什么就不清楚了.
+	dpc_init();
+
+	// 初始化内核定时器
+	timer_init();
+
+    // 创建系统初始化工作线程,执行app初始化，lk把业务部分当成一个app.
+	thread_resume(thread_create("bootstrap2", &bootstrap2, NULL, DEFAULT_PRIORITY, DEFAULT_STACK_SIZE));
+
+	// 使能中断.
+	exit_critical_section();
+
+	// become the idle thread
+	thread_become_idle();
+}
+
+kmain 小结：
+
+。初始化线程池，建立线程管理链表、运行队列等；
+。初始化各种平台硬件，包括irq、timer，wdt，uart，led，pmic，i2c，gpio等，建立lk基本运行环境；
+。初始化内核heap、内核timer等；
+。创建系统初始化主线程，进入bootstrap2执行，使能中断，当前线程进入idle;
+
+-------------------------------
+3、bootstrap2 分析：
+-------------------------------
+static int bootstrap2(void *arg)
+{
+  ...
+  //平台相关初始化，包括nand/emmc，LCM显示驱动，启动模式选择，加载logo资源， 具体代码流程看时序图.
+	platform_init();
+  ...
+
+  //app初始化，跳转到mt_boot_init入口开始执行,对应的 ".apps" 这个section.
+	apps_init();
+
+	return 0;
+}
+
+platform_init时序图: 参考文件夹下的附图。
+apps_init 跳转机制还有点特别：
+
+extern const struct app_descriptor __apps_start;
+extern const struct app_descriptor __apps_end;
+void apps_init(void)
+{
+	const struct app_descriptor *app;
+
+  //估计得结合 链接脚本看这个段里都放了什么代码
+	//这里具体干了什么？ 如何跳转到mt_boot_init入口？ 依次遍历 从__apps_start 到__apps_end 又是？
+	for (app = &__apps_start; app != &__apps_end; app++) {
+		if (app->init)
+			app->init(app);
+	}
+
+...
+}
+
+这个__apps_start 跟 __apps_end哪里定义的？ 是怎么回事呢？ 这里就需要 编译链接的原理：
+这个实际上是指memory中的一个只读数据段的起始&结束地址区间， 它定义在链接脚本文件中：      lk的搞法，有剽窃了uboot的作法的嫌疑...
+
+./lk/arch/arm/system-onesegment.ld:47:		__apps_start = .;
+
+.rodata : { 
+...
+	. = ALIGN(4);
+	__apps_start = .;
+	KEEP (*(.apps))
+	__apps_end = .;
+	. = ALIGN(4); 
+	__rodata_end = . ;		
+}
+
+该mem地址区间是[__apps_start, __apps_end]，显然区间就是“.apps” 这个section内容了. 那么这个section是在哪里初始化的呢？继续看：
+
+./lk/app/mt_boot/mt_boot.c:1724:
+
+APP_START(mt_boot)
+.init = mt_boot_init,
+ APP_END
+
+展开APP_START：
+#define APP_START(appname) struct app_descriptor _app_##appname __SECTION(".apps") = { .name = #appname,
+#define APP_END };
+
+到这里就很明显了，编译链接系统会将mt_boot_init这个地址记录到".apps"这个section中！
+所以下面代码要干的事情就很清晰了，
+执行app->init(app)后就等价于调用了void mt_boot_init(const struct app_descriptor *app) 函数.
+
+for (app = &__apps_start; app != &__apps_end; app++) {
+	if (app->init)
+		app->init(app);
+}
+
+
+bootstrap2 函数小结：
+。平台相关初始化，包括nand/emmc，显现相关驱动，启动模式选择，加载logo资源 检测是否DA模式，检测分区中是否有KE信息，
+  如果就KE信息，就从分区load 到DRAM， 点亮背光，显示logo，禁止I/D-cache和MMU,
+  跳转到DA（??）,配置二级cache的size 
+  获取bat电压，判断是否低电量是否显示充电logo等，
+  
+  总之此函数干的事情比较多.时序图(platform_init)可以比较清晰直观的描述具体细节.
+  
+  
+。跳转到到mt_boot_init函数,对应的 ".apps" 这个section，相关机制上面已经详细描述.
+
+
+-----------------------
+4、mt_boot_init 分析
+-----------------------
+void mt_boot_init(const struct app_descriptor *app)
+{
+	unsigned usb_init = 0;
+	unsigned sz = 0;
+	int sec_ret = 0;
+	char tmp[SN_BUF_LEN+1] = {0};
+	unsigned ser_len = 0;
+	u64 key;
+	u32 chip_code;
+	char serial_num[SERIALNO_LEN];
+
+	/* 获取串号字符串 */
+	key = get_devinfo_with_index(13);
+	key = (key << 32) | (unsigned int)get_devinfo_with_index(12);
+
+    /* 芯片代码 */
+	chip_code = board_machtype();
+
+	if (key != 0)
+		get_serial(key, chip_code, serial_num);
+	else
+		memcpy(serial_num, DEFAULT_SERIAL_NUM, SN_BUF_LEN);
+	/* copy serial from serial_num to sn_buf */
+	memcpy(sn_buf, serial_num, SN_BUF_LEN);
+	dprintf(CRITICAL,"serial number %s\n",serial_num);
+
+    /* 从特定分区获取产品sn号，如果获取失败就使用默认值 DEFAULT_SERIAL_NUM */
+#ifdef SERIAL_NUM_FROM_BARCODE
+	ser_len = read_product_info(tmp);
+	if (ser_len == 0) {
+		ser_len = strlen(DEFAULT_SERIAL_NUM);
+		strncpy(tmp, DEFAULT_SERIAL_NUM, ser_len);
+	}
+	memset( sn_buf, 0, sizeof(sn_buf));
+	strncpy( sn_buf, tmp, ser_len);
+#endif
+	sn_buf[SN_BUF_LEN] = '\0';
+	surf_udc_device.serialno = sn_buf;
+
+/* mtk平台默认不支持 fastboot */
+	if (g_boot_mode == FASTBOOT)
+		goto fastboot;
+
+/* secure boot相关 */
+#ifdef MTK_SECURITY_SW_SUPPORT
+#if MTK_FORCE_VERIFIED_BOOT_SIG_VFY
+	g_boot_state = BOOT_STATE_RED;
+#else
+	if (0 != sec_boot_check(0)) {
+		g_boot_state = BOOT_STATE_RED;
+	}
+#endif
+#endif
+
+/* 这里干的事情就比较多了，跟进g_boot_mode选择各种启动模式，例如：
+normal、facotry、fastboot、recovery等,然后从ROM中的boot.img分区找到(解压)
+ramdisk跟zImage的地址loader到DRAM的特定地址中，kernel最终load到DRAM中的地址
+(DRAM_PHY_ADDR + 0x8000) == 0x00008000.
+read the data of boot (size = 0x811800)
+*/
+	boot_linux_from_storage();
+
+fastboot:
+	target_fastboot_init();
+	if (!usb_init)
+		/*Hong-Rong: wait for porting*/
+		udc_init(&surf_udc_device);
+
+	mt_part_dump();
+	sz = target_get_max_flash_size();
+	fastboot_init(target_get_scratch_address(), sz);
+	udc_start();
+
+}
+
+mt_boot_init 分析小结：
+
+。获取设备串号字符串、芯片代码、sn号等.
+
+。如果实现了secure boot则进行sec boot的check工作；
+
+。进入 boot_linux_from_storage 函数初始化,该函数很重要，干了很多事情，如下分析.
+
+
+5、boot_linux_from_storage 分析：
+
+int boot_linux_from_storage(void)
+{
+	int ret=0;
+...
+
+	switch (g_boot_mode) {
+		case NORMAL_BOOT:
+		case META_BOOT:
+		case ADVMETA_BOOT:
+		case SW_REBOOT:
+		case ALARM_BOOT:
+		case KERNEL_POWER_OFF_CHARGING_BOOT:
+		case LOW_POWER_OFF_CHARGING_BOOT:
+                        /* 检查boot分区的头部是否有bootopt标识，如果没有就报错 */
+			ret = mboot_android_load_bootimg_hdr("boot", CFG_BOOTIMG_LOAD_ADDR);
+			if (ret < 0) {
+				msg_header_error("Android Boot Image");
+			}
+			
+                       /* 64bit & 32bit kimg地址获取不一样*/
+			if (g_is_64bit_kernel) {
+				kimg_load_addr = (unsigned int)target_get_scratch_address();
+			} else {
+				kimg_load_addr = (g_boot_hdr!=NULL) ? g_boot_hdr->kernel_addr : CFG_BOOTIMG_LOAD_ADDR;
+			}
+			
+                       /* 
+                        从EMMC的boot分区取出bootimage载入到DRAM  
+                        dprintf(CRITICAL, " > from - 0x%016llx (skip boot img hdr)\n",start_addr);
+                        dprintf(CRITICAL, " > to   - 0x%x (starts with kernel img hdr)\n",addr);
+                        len = dev->read(dev, start_addr, (uchar*)addr, g_bimg_sz); <<= 系统调用load到DRAM
+
+                       开机log：
+                              [3380]  > from - 0x0000000001d20800 (skip boot img hdr)
+                              [3380]  > to   - 0x80008000 (starts with kernel img hdr)
+                       */
+			ret = mboot_android_load_bootimg("boot", kimg_load_addr);
+			if (ret < 0) {
+				msg_img_error("Android Boot Image");
+			}
+
+			dprintf(CRITICAL,"[PROFILE] ------- load boot.img takes %d ms -------- \n", (int)get_timer(time_load_bootimg));
+
+			break;
+
+		case RECOVERY_BOOT:
+...
+			break;
+
+		case FACTORY_BOOT:
+		case ATE_FACTORY_BOOT:
+...
+
+			break;
+...
+
+	}
+
+	/* 重定位根文件系统（ramdisk）地址 */
+	memcpy((g_boot_hdr!=NULL) ? (char *)g_boot_hdr->ramdisk_addr : (char *)CFG_RAMDISK_LOAD_ADDR, (char *)(g_rmem_off), g_rimg_sz);
+	g_rmem_off = (g_boot_hdr!=NULL) ? g_boot_hdr->ramdisk_addr : CFG_RAMDISK_LOAD_ADDR;
+
+...
+
+/* 传入cmdline，设置selinux */
+#if SELINUX_STATUS == 1
+	cmdline_append("androidboot.selinux=disabled");
+#elif SELINUX_STATUS == 2
+	cmdline_append("androidboot.selinux=permissive");
+#endif
+
+/* 准备启动linux kernel */
+	boot_linux((void *)CFG_BOOTIMG_LOAD_ADDR, (unsigned *)CFG_BOOTARGS_ADDR,
+	           (char *)cmdline_get(), board_machtype(), (void *)CFG_RAMDISK_LOAD_ADDR, g_rimg_sz);
+
+	while (1) ;
+
+	return 0;
+}
+
+boot_linux_from_storage 小结：
+
+。跟据g_boot_mode选择各种启动模式，例如： normal、facotry、fastboot、recovery等,然后从EMMC中的boot分区找到(解压) ramdisk跟zImage的地址通过read系统调用load到DRAM址中， kernel最终load到DRAM的地址：(DRAM_PHY_ADDR + 0x8000)；
+
+。重定位根文件系统地址；
+
+。跳转到 boot_linux，正式拉起kernel；
+
+
+6、boot_linux 分析： 
+
+boot_linux 实际上跑的是boot_linux_fdt,这个函数有对dtb的加载做出来，期间操作相当复杂，这里只简单关注主流程.
+
+void boot_linux(void *kernel, unsigned *tags,
+                char *cmdline, unsigned machtype,
+                void *ramdisk, unsigned ramdisk_size)
+{
+...
+// 新架构都是走fdt分支.
+#ifdef DEVICE_TREE_SUPPORT
+	boot_linux_fdt((void *)kernel, (unsigned *)tags,
+	               (char *)cmdline, machtype,
+	               (void *)ramdisk, ramdisk_size);
+
+	while (1) ;
+#endif
+...
+
+int boot_linux_fdt(void *kernel, unsigned *tags,
+                   char *cmdline, unsigned machtype,
+                   void *ramdisk, unsigned ramdisk_size)
+{
+...
+	void (*entry)(unsigned,unsigned,unsigned*) = kernel;
+...
+
+// find dt from kernel img
+	if (fdt32_to_cpu(*(unsigned int *)dtb_addr) == FDT_MAGIC) {
+		dtb_size = fdt32_to_cpu(*(unsigned int *)(dtb_addr+0x4));
+	} else {
+		dprintf(CRITICAL,"Can't find device tree. Please check your kernel image\n");
+		while (1) ;
+	}
+...
+
+	if (!has_set_p2u) {
+/* 控制进入kernel后uart的输出，非eng版本默认是关闭的，如果调试需要就可以改这里为
+   "printk.disable_uart=0"
+ */
+ 
+#ifdef USER_BUILD
+		sprintf(cmdline,"%s%s",cmdline," printk.disable_uart=1");
+#else
+		sprintf(cmdline,"%s%s",cmdline," printk.disable_uart=0 ddebug_query=\"file *mediatek* +p ; file *gpu* =_\"");
+#endif
+...
+	}
+
+...
+
+// led,irq关闭
+	platform_uninit();
+	
+// 关闭I/D-cache，关闭MMU，今天kernel的条件.
+	arch_disable_cache(UCACHE);
+	arch_disable_mmu();
+
+// sec init
+	extern void platform_sec_post_init(void)__attribute__((weak));
+	if (platform_sec_post_init) {
+		platform_sec_post_init();
+	}
+
+// 如果是正在充电，检测到power key后执行reset.
+	if (kernel_charging_boot() == 1) {
+		if (pmic_detect_powerkey()) {
+			dprintf(CRITICAL,"[%s] PowerKey Pressed in Kernel Charging Mode Before Jumping to Kernel, Reboot Os\n", __func__);
+			mtk_arch_reset(1);
+		}
+	}
+#endif
+...
+
+// 输出关键信息。
+	dprintf(CRITICAL,"cmdline: %s\n", cmdline);
+	dprintf(CRITICAL,"lk boot time = %d ms\n", lk_t);
+	dprintf(CRITICAL,"lk boot mode = %d\n", g_boot_mode);
+	dprintf(CRITICAL,"lk boot reason = %s\n", g_boot_reason[boot_reason]);
+	dprintf(CRITICAL,"lk finished --> jump to linux kernel %s\n\n", g_is_64bit_kernel ? "64Bit" : "32Bit");
+
+// 执行系统调用，跳转到kernel，这里的entry实际上就是前面的kernel在DRAM的入口地址.
+	if (g_is_64bit_kernel) {
+		lk_jump64((u32)entry, (u32)tags, 0, KERNEL_64BITS);
+	} else {
+                dprintf(CRITICAL,"[mt_boot] boot_linux_fdt entry:0x%08x, machtype：%d\n",entry,machtype);
+		entry(0, machtype, tags);
+	}
+	while (1);
+	return 0;
+}
+
+开机log打印信息：
+
+[4260] cmdline: console=tty0 console=ttyMT0,921600n1 root=/dev/ram vmalloc=496M androidboot.hardware=mt6580 androidboot.verifiedbootstate=green bootopt=64S3,32S1,32S1 printk.disable_uart=1 bootprof.pl_t=1718 bootprof.lk_t=2178 boot_reason=0 androidboot.serialno=0123456789ABCDEF androidboot.bootreason=power_key gpt=1
+
+[4260] lk boot time = 2178 ms
+
+[4260] lk boot mode = 0
+
+[4260] lk boot reason = power_key
+
+[4260] lk finished --> jump to linux kernel 32Bit
+
+[4260] [mt_boot] boot_linux_fdt entry:0x80008000, machtype：6580
+
+boot_linux 小结：
+
+。初始化DTB(device tree block)；
+
+。准备各种cmdline参数传入kernel；
+
+。关闭I/D-cache、MMU；
+
+。打印关键信息，正式拉起kernel.
+
+到这里，bootloader两个阶段就分析完了!
+
+
+Bootloader 启动简单总结：
+
+
+Pre-loader -》lk主要干的事情：
+
+1、初始化 DRAM等必须硬件;
+
+2、与flashtool USB握手，download 相关检测 & sec boot检测；
+
+3、将lk载入DRAM，若实现了EL3则把atf载入内存;
+
+4、跳转到lk，若实现了EL3，则先跳转到atf，初始化atf后再跳转回lk初始化；
+
+
+lk -》 kernel 主要干的事情：
+
+1、打开MMU,使能I/D-cache，加速lk执行，显示logo、充电相关；
+
+2、从emmc中boot分区取出boot.img解压，将根文件系统（ramdisk）、zImage load到DRAM；
+
+3、解析dtb，写入到DRAM指定区域；
+
+4、关闭MMU、irq / fiq，关闭I/D-cache, 拉起 kernel;
+
+
