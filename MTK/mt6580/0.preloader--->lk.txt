@@ -1,0 +1,333 @@
+/////////////////////////////////////////
+ 1、bootloader到kernel启动总逻辑流程图
+/////////////////////////////////////////
+
+最近的ARM架构中， EL0/EL1是必须实现的， EL2/EL3是选配， ELx跟层级对应关系：...
+
+EL0 -- app
+EL1 -- Linux kernel 、lk
+EL2 -- hypervisor（虚拟化）
+EL3 -- ARM trust firmware 、pre-loader
+
+若平台未实现EL3（atf），pre-loader直接加载lk.
+若平台实现EL3，则需要先加载完ATF再由ATF去加载lk.
+
+ 
+ 
+ 
+bootloader 启动分两个阶段：
+一个是preloader加载booloader（lk，u-boot等）的阶段，
+另一个是bootloader加载kernel阶段。
+ 
+下面跟着流程图(参考文件夹下的图片)简述第一个阶段的加载流程：  （数字1-3之类参图）
+
+1-3：设备上电起来后，跳转到Boot ROM(不是flash)中的boot code中执行，
+    把pre-loader加载起到ISRAM， 因为当前DRAM（RAM分SRAM跟DRAM，简单来说SRAM就是cache，DRAM就是普通内存）还没有准备好，
+    所以要先把preloader load到芯片内部的ISRAM（Internal SRAM)中。 （跟samsung芯片一样）
+    
+4-6：preloader初始化好DRAM后， 就将lk从flash（nand/sd/emmc）中加载到DRAM中运行；
+
+7-8：解压bootimage成ramdisk跟kernel, 并载入DRAM中,初始化dtb；
+
+9-11：lk跳转到kernl初始化, kernel初始化完成后fork出init进程， 然后启动ramdisk中的init程序，进入用户空间初始化，
+     init进程fork出zygote进程..直到整个Android启动完成.
+
+
+
+
+/////////////////////////////////////////
+ 2、从pre-loader到lk（mt6580为例）
+/////////////////////////////////////////
+Preloader主要干的事情就是初始化某些硬件，比如： UART,GPIO,DRAM,TIMER,RTC,PMIC 等等，建立起最基本的运行环境,最重要的就是初始化DRAM.
+
+时序图： 
+     参考此文件夹下的【从pre-loader到lk(mt6580)的时序图.jpg】
+     
+     
+    
+--------------------------------------------------------------------------------------------
+ 源码流程如下：
+
+./bootloader/preloader/platform/mt6580/src/init/init.s
+
+.section .text.start
+...
+
+.globl _start
+...
+
+    /* set the cpu to SVC32 mode */
+    MRS	r0,cpsr
+    BIC	r0,r0,#0x1f
+    ORR	r0,r0,#0xd3
+    MSR	cpsr,r0
+
+    /* disable interrupt */
+    MRS r0, cpsr
+    MOV r1, #INT_BIT
+    ORR r0, r0, r1
+    MSR cpsr_cxsf, r0
+    
+...
+setup_stk :
+    /* setup stack */
+    LDR r0, stack
+    LDR r1, stacksz
+...
+
+entry :
+    LDR r0, =bldr_args_addr
+    
+    /* 跳转到C代码 main 入口 */
+    B   main
+
+init.s 主要干的事情是切换系统到管理模式（svc）（如果平台有实现el3，那么pre-loader运行在el3，否则运行在el1），禁止irq/fiq，设置stack等, 然后jump到c代码main函数入口。 
+
+进入源码分析。
+
+./bootloader/preloader/platform/mt6580/src/core/main.c
+
+void main(u32 *arg)
+{
+    struct bldr_command_handler handler;
+    u32 jump_addr, jump_arg;
+
+    /* get the bldr argument */
+    bldr_param = (bl_param_t *)*arg;
+
+// 初始化uart 
+    mtk_uart_init(UART_SRC_CLK_FRQ, CFG_LOG_BAUDRATE);
+    
+// 这里干了很多事情，包括各种的平台硬件(timer，pmic，gpio，wdt...)初始化工作.
+    bldr_pre_process();
+
+    handler.priv = NULL;
+    handler.attr = 0;
+    handler.cb   = bldr_cmd_handler;
+
+// 这里是获取启动模式等信息保存到全局变量g_boot_mode和g_meta_com_type 中.
+	BOOTING_TIME_PROFILING_LOG("before bldr_handshake");
+    bldr_handshake(&handler);
+	BOOTING_TIME_PROFILING_LOG("bldr_handshake");
+
+// 下面跟 secro img 相关，跟平台设计强相关.
+    /* security check */
+    sec_lib_read_secro();
+    sec_boot_check();
+    device_APC_dom_setup();
+
+	BOOTING_TIME_PROFILING_LOG("sec_boot_check");
+
+/* 如果已经实现EL3，那么进行tz预初始化 */
+#if CFG_ATF_SUPPORT
+    trustzone_pre_init();
+#endif
+
+/* bldr_load_images
+此函数要做的事情就是把lk从ROM中指定位置load到DRAM中，开机log中可以看到具体信息：
+[PART] load "lk" from 0x0000000001CC0200 (dev) to 0x81E00000 (mem) [SUCCESS]
+这里准备好了jump到DRAM的具体地址，下面详细分析.
+*/
+    if (0 != bldr_load_images(&jump_addr)) {
+        print("%s Second Bootloader Load Failed\n", MOD);
+        goto error;
+    }
+
+/* 
+该函数的实现体是platform_post_init，这里要干的事情其实比较简单，就是通过
+hw_check_battery去判断当前系统是否存在电池（判断是否有电池ntc脚来区分），
+如果不存在就陷入while(1)卡住了，所以在es阶段调试有时候
+需要接电源调试的，就需要改这里面的逻辑才可正常开机 
+*/
+    bldr_post_process();
+
+// atf 正式初始化，使用特有的系统调用方式实现.
+#if CFG_ATF_SUPPORT
+    trustzone_post_init();
+#endif
+
+/* 跳转传入lk的参数，包括boot time/mode/reason 等，这些参数在
+   platform_set_boot_args 函数获取。
+*/
+    jump_arg = (u32)&(g_dram_buf->boottag);
+
+
+/* 执行jump系统调用，从 pre-loader 跳转到 lk执行，
+
+   如果实现了EL3情况就要复杂一些，需要先跳转到EL3初始化，然后再跳回lk，pre-loader执行在EL3，LK执行在EL1）
+从log可以类似看到这些信息： [BLDR] jump to 0x81E00000 [BLDR] <0x81E00000>=0xEA000007 [BLDR] <0x81E00004>=0xEA0056E2 */ #if CFG_ATF_SUPPORT /* 64S3,32S1,32S1 (MTK_ATF_BOOT_OPTION = 0) * re-loader jump to LK directly and then LK jump to kernel directly */ if ( BOOT_OPT_64S3 == g_smc_boot_opt && BOOT_OPT_32S1 == g_lk_boot_opt && BOOT_OPT_32S1 == g_kernel_boot_opt) { print("%s 64S3,32S1,32S1, jump to LK\n", MOD); bldr_jump(jump_addr, jump_arg, sizeof(boot_arg_t)); } else { // 如果 el3 使用aarch64实现，则jump到atf. print("%s Others, jump to ATF\n", MOD); bldr_jump64(jump_addr, jump_arg, sizeof(boot_arg_t)); } #else bldr_jump(jump_addr, jump_arg, sizeof(boot_arg_t)); #endif // 如果没有取到jump_addr，则打印错误提示，进入while(1)等待. error: platform_error_handler(); }
+
+main 函数小结：
+
+1、各种硬件初始化(uart、pmic、wdt、timer、mem..)；
+
+2、获取系统启动模式等，保存在全局变量中；
+
+3、Security check，跟secro.img相关；
+
+4、如果系统已经实现el3，则进入tz初始化；
+
+5、获取lk加载到DRAM的地址（固定值）,然后从ROM中找到lk分区的地址， 如果没找到jump_addr，则 goto error；
+
+6、battery check，如果没有电池就会陷入while(1);
+
+7、jump到lk(如果有实现el3，则会先jump到el3，然后再回到lk)
+
+
+3、重点函数分析
+
+bldr_load_images
+
+函数主要干的事情就是找到lk分区地址和lk加载到DRAM中的地址， 准备好jump到lk执行，如下源码分析：
+
+static int bldr_load_images(u32 *jump_addr)
+{
+    int ret = 0;
+    blkdev_t *bootdev;
+    u32 addr = 0;
+    char *name;
+    u32 size = 0;
+    u32 spare0 = 0;
+    u32 spare1 = 0;
+
+...
+/* 这个地址是一个固定值，可以查到定义在：
+   ./bootloader/preloader/platform/mt6580/default.mak:95:
+   CFG_UBOOT_MEMADDR := 0x81E00000
+   从log中可以看到：
+   [BLDR] jump to 0x81E00000
+*/
+    addr = CFG_UBOOT_MEMADDR;
+    
+/* 然后去ROM找到lk所在分区地址 */
+    ret = bldr_load_part("lk", bootdev, &addr, &size);
+    if (ret)
+       return ret;
+    *jump_addr = addr;
+    
+}
+
+// 这个函数逻辑很简单，就不需要多说了.
+int bldr_load_part(char *name, blkdev_t *bdev, u32 *addr, u32 *size)
+{
+    part_t *part = part_get(name);
+
+    if (NULL == part) {
+        print("%s %s partition not found\n", MOD, name);
+        return -1;
+    }
+
+    return part_load(bdev, part, addr, 0, size);
+}
+
+// 真正的load实现是在part_load函数.
+int part_load(blkdev_t *bdev, part_t *part, u32 *addr, u32 offset, u32 *size)
+{
+    int ret;
+    img_hdr_t *hdr = (img_hdr_t *)img_hdr_buf;
+    part_hdr_t *part_hdr = &hdr->part_hdr;
+    gfh_file_info_t *file_info_hdr = &hdr->file_info_hdr;
+
+    /* specify the read offset */
+    u64 src = part->startblk * bdev->blksz + offset;
+    u32 dsize = 0, maddr = 0;
+    u32 ms;
+
+// 检索分区头是否正确。
+    /* retrieve partition header. */
+    if (blkdev_read(bdev, src, sizeof(img_hdr_t), (u8*)hdr,0) != 0) {
+        print("[%s]bdev(%d) read error (%s)\n", MOD, bdev->type, part->name);
+        return -1;
+    }
+
+    if (part_hdr->info.magic == PART_MAGIC) {
+
+        /* load image with partition header */
+        part_hdr->info.name[31] = '\0';
+
+    /*
+        输出分区的各种信息，从log中可以看到：
+        [PART] Image with part header
+        [PART] name : lk
+        [PART] addr : FFFFFFFFh mode : -1
+        [PART] size : 337116
+        [PART] magic: 58881688h
+    */
+        print("[%s]Img with part header\n", MOD);
+        print("[%s]name:%s\n", MOD, part_hdr->info.name);
+        print("[%s]addr:%xh\n", MOD, part_hdr->info.maddr);
+        print("[%s]size:%d\n", MOD, part_hdr->info.dsize);
+        print("[%s]magic:%xh\n", MOD, part_hdr->info.magic);
+
+        maddr = part_hdr->info.maddr;
+        dsize = part_hdr->info.dsize;
+        src += sizeof(part_hdr_t);
+
+        memcpy(part_info + part_num, part_hdr, sizeof(part_hdr_t));
+        part_num++;
+    } else {
+        print("[%s]%s img not exist\n", MOD, part->name);
+        return -1;
+    }
+
+// 如果maddr没有定义，那么就使用前面传入的地址addr.
+    if (maddr == PART_HEADER_MEMADDR/*0xffffffff*/)
+        maddr = *addr;
+
+    if_overlap_with_dram_buffer((u32)maddr, ((u32)maddr + dsize));
+
+    ms = get_timer(0);
+    if (0 == (ret = blkdev_read(bdev, src, dsize, (u8*)maddr,0)))
+        *addr = maddr;
+    ms = get_timer(ms);
+
+/* 如果一切顺利就会打印出关键信息：
+   [PART] load "lk" from 0x0000000001CC0200 (dev) to 0x81E00000 (mem) [SUCCESS]
+   [PART] load speed: 25324KB/s, 337116 bytes, 13ms
+*/
+    print("\n[%s]load \"%s\" from 0x%llx(dev) to 0x%x (mem) [%s]\n", MOD,
+        part->name, src, maddr, (ret == 0) ? "SUCCESS" : "FAILED");
+
+    if( ms == 0 )
+        ms+=1;
+
+    print("[%s]load speed:%dKB/s,%d bytes,%dms\n", MOD, ((dsize / ms) * 1000) / 1024, dsize, ms);
+
+
+    return ret;
+}
+
+bldr_post_process
+
+函数主要干的事情就是从pmic去检查是否有电池存在，如果没有就等待， 如下源码分析，比较简单：
+
+// 就是包了一层而已.
+static void bldr_post_process(void)
+{
+    platform_post_init();
+}
+
+// 重点是这个函数：
+void platform_post_init(void)
+{
+    /* normal boot to check battery exists or not */
+    if (g_boot_mode == NORMAL_BOOT && !hw_check_battery() && usb_accessory_in()) {
+...
+        pl_charging(1);
+        do {
+            mdelay(300);
+            
+            /* 检查电池是否存在, 如果使用电源调试则需要修改此函数逻辑 */
+            if (hw_check_battery())
+                break;
+            /* 喂狗，以免超时被狗咬 */
+            platform_wdt_all_kick();
+        } while(1);
+        /* disable force charging mode */
+        pl_charging(0);
+    }
+
+...
+}
+
+Pre-loader 到 Lk的源码分析到这就完成了.
