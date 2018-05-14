@@ -1,0 +1,13 @@
+ 1、bootloader到kernel启动总逻辑流程图
+
+ARM架构中，EL0/EL1是必须实现，EL2/EL3是选配，ELx跟层级对应关系：
+
+EL0 -- app
+
+EL1 -- Linux kernel 、lk
+
+EL2 -- hypervisor（虚拟化）
+
+EL3 -- ARM trust firmware 、pre-loader
+
+若平台未实现EL3（atf），pre-loader直接加载lk：
