@@ -1,0 +1,154 @@
+------------------------------------------------------------------------------------------------------------------------
+ linux常用的监控命令
+------------------------------------------------------------------------------------------------------------------------
+1.  top
+
+显示所有正在运行而且处于活动状态的实时进程， 而且会定期更新显示结果；它显示了CPU使用率，内存使用率，交换内存使用大小，调整缓存使用大小，缓冲区使用大小，进程PID， 使用的命令等信息。
+
+ 
+
+2.  vmstat
+
+一般是通过两个数字参数来完成的，第一个参数是采样时间间隔，单位是秒， 第二个参数是采样的次数
+
+image
+
+r:    表示运行队列，如果队列过大说明CPU很繁忙，一般会造成CPU使用率高
+
+b:    表示阻塞的进程数
+
+swap:  虚拟内存已使用的大小，如果大于0，说明机器的物理内存不够了
+
+free:  空闲的物理内存大小
+
+buff:   系统占用的缓存大小（写缓存）
+
+cache：  直接用来记忆我们打开的文件，给文件做缓冲，读缓存
+
+si:     每秒从磁盘读入虚拟内存大小，如果这个值大于0，表示物理内存不足了
+
+so:    每秒虚拟内存写入磁盘的大小，如果这个值大于0， 表示物理内存不足了
+
+us:    用户cpu时间
+
+sy:    系统CPU时间， 如果值 太高，说明系统调用，例如是IO操作频繁
+
+id:     空闲CPU时间，一般来说 id + us + sy = 100
+
+wt:    等待IO的CPU时间
+
+ 
+
+3.  lsof
+
+列出打开的文件；它常用于以列表形式显示所有打开的文件和进程，包括磁盘文件，网络套接字，管道，设备和进程。
+
+主要情形之一就是 无法挂载磁盘和显示正在使用或者打开某个文件的错误时，查看谁正在使用。
+
+ 
+
+4. tcpdump
+
+apt-get install tcpdump
+
+用于捕捉或过滤网络上指定接口上接收或者传输的TCP/IP包。
+
+-i  :   网络接口
+
+-c ： 需要输出包数量
+
+image
+
+ 
+
+5. netstat
+用于监控进出网络的包和网络接口统计的命令行工具，非常有用，用来监控网络性能，解决网络相关问题。
+-h   :   查看帮助
+-r   :    显示路由表
+-i   :     查看网络接口
+
+image
+image
+
+ 
+
+6. Htop
+一个非常高级的交互式实时linux进程监控工具，和top相似，但更友好, 还支持鼠标。
+
+sudo apt-get install htop
+
+image
+
+ 
+
+7.  iotop
+监控linux磁盘I/O, 用于查找大量使用磁盘读写进程的时候。python版本需要2.7以上。
+sudo apt-get install iotop
+
+-h:  查看帮助
+
+image
+
+ 
+
+8. iostat
+存储设备输入和输出状态统计的工具，用来追踪存储设备的性能 问题；包括设备，磁盘，NFS远程磁盘。
+
+sudo apt-get install sysstat
+
+image
+
+%user:    在用户级别运行所使用的CPU百分比
+%nice:     优先进程消耗的CPU时间，占所有CPU百分比
+%system:   在系统级别运行所使用的CPU百分比
+%iowait:   cpu等待硬件I/O时，所占用的CPU百分比
+%steal:     管理程序维护另一个虚拟处理器时，虚拟CPU的无意识等待时间百分比
+%idle:        CPU空闲时间的百分比
+tps:         每秒发送到I/O的请求数
+KB_read/s:    每秒读取的block数
+KB_wrtn/s:    每秒写入的block数
+KB_read:     启动到现在block总数
+KB_wrtn:    启动到现在写入的block总数
+
+ 
+
+9. iptraf
+用于采集通过网络接口的IP流量信息，包括tcp标记，icmp信息，TCP，UDP信等。
+
+sudo apt-get install iptraf
+sudo iptraf
+
+image
+image
+image
+image
+
+ 
+
+10. nethogs
+监控每个进程使用的网络带宽
+sudo apt-get install nethogs
+sudo nethogs
+image
+
+ 
+
+11. iftop
+监控网络接口的应用网络带宽使用情况
+sudo apt-get install iftop
+sudo iftop
+image
+=> :  表示 流量方向
+TX：  发送的流量
+RX： 接收的流量
+TOTAL： 总流量
+Cumm:  运行iftop到目前总流量
+peak:    流量峰会
+rates:  分别表示 过去2秒，10秒，40秒的平均流量
+
+ 
+
+12. system monitor
+监控cpu,内存，进程，硬盘的信息；分为进程监控，资源监控，文件监控; 遗憾的是需要图形界面支持。
+sudo apt-get install gnome-system-monitor
+gnome-system-monitor

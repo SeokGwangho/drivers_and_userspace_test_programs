@@ -1,0 +1,59 @@
+---------------------------------------------------------------------------------
+Linux的2个IP地址转换函数inet_pton和inet_ntop
+---------------------------------------------------------------------------------
+inet_pton 和 inet_ntop
+
+Linux下这2个IP地址转换函数，可以在将IP地址 在 “点分十进制” 和 “整数” 之间转换,而且，
+inet_pton和inet_ntop这2个函数能够处理ipv4和ipv6。
+
+算是比较新的函数了。
+inet_pton
+
+函数原型如下[将"点分十进制" -> "整数"] 
+
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+int inet_pton(int af, const char *src, void *dst);
+
+//这个函数转换字符串到网络地址，第一个参数af是地址族，转换后存在dst中
+
+inet_pton是inet_addr的扩展，支持的多地址族有下列：
+af = AF_INET
+src为指向字符型的地址，即ASCII的地址的首地址（ddd.ddd.ddd.ddd格式的），函数将该地址转换为in_addr的结构体，并复制在*dst中
+af = AF_INET6
+src为指向IPV6的地址，函数将该地址转换为in6_addr的结构体，并复制在*dst中。如果函数出错将返回一个负值，并将errno设置为EAFNOSUPPORT，如果参数af指定的地址族和src格式不对，函数将返回0。
+inet_ntop
+
+函数原型如下[将"点分十进制" -> "整数"]
+
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+const char *inet_ntop(int af, const void *src, char *dst, socklen_t cnt);
+//这个函数转换网络二进制结构到ASCII类型的地址，参数的作用和上面相同，只是多了一个参数socklen_t cnt,
+//他是所指向缓存区dst的大小，避免溢出，如果缓存区太小无法存储地址的值，则返回一个空指针，并将errno置为ENOSPC
+
+ 
+编程实例：
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+int main (void)
+{
+  char IPdotdec[20]; // 存放点分十进制IP地址
+  struct in_addr s;  // IPv4地址结构体
+  // 输入IP地址
+  printf("Please input IP address: ");
+  scanf("%s", &IPdotdec);
+  // 转换
+  inet_pton(AF_INET, IPdotdec, (void *)&s);
+  printf("inet_pton: 0x%x\n", s.s_addr); // 注意得到的字节序
+  // 反转换
+  inet_ntop(AF_INET, (void *)&s, IPdotdec, 16);
+  printf("inet_ntop: %s\n", IPdotdec);
+}

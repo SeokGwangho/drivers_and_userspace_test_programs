@@ -1,0 +1,212 @@
+UDP超时设置_select函数的一种用法
+
+
+
+最近项目中，需要编写一个udp接收程序。
+传统的recvfrom是阻塞进行的，即调用 recvfrom 之后程序就会阻塞，等待数据包的到来，如果没有数据包，程序就永远等待。
+
+在很多场景中，我们需要设置超时参数，如果该套接口超时之后仍然没有数据包到来，那么就直接返回。
+socket编程中这样的超时机制,可以使用 select 和 recvfrom 这两个函数实现
+
+实现代码如下:
+ 
+其中关键代码是 写注释//的行.
+    
+#define RECV_LOOP_COUNT 100
+
+int recv_within_time(int fd, char *buf, size_t buf_n, struct sockaddr* addr, socklen_t *len, unsigned int sec, unsigned usec)
+{
+        int i=0;
+        unsigned int n=0;
+
+        struct timeval tv;
+        fd_set readfds;
+
+
+        for(i=0; i<RECV_LOOP_COUNT; i++) {
+            FD_ZERO(&readfds);           //将集合readfds清零，
+            FD_SET(fd, &readfds);        //将我们关注的sock加入集合readfds中（置fd对应的bit为1），
+            
+            tv.tv_sec=sec;               //设置超时参数，
+            tv.tv_usec=usec;             //设置超时参数，
+
+            //以非阻塞的方式调用select，
+            //如果tv时间内,有数据,  则返回并设置readfds中fd对应的bit位为1，
+            //如果tv时间内,没有数据, 则返回并设置readfds中fd对应的bit位为0；
+            select(fd+1, &readfds, NULL, NULL, &tv);
+
+            if(FD_ISSET(fd, &readfds)) {   //FD_ISSET宏测试readfds中fd位有没有置1，如果置1,则返回成功，否则失败
+                if((n=recvfrom(fd, buf, buf_n, 0, addr, len)) >=0 ) {    
+                    return n;
+                }
+            }
+        }
+        
+        return -1;
+}
+
+
+这里要强调2点：
+第一：如果tv时间内没有数据到来，你还想继续等待N次，那么(每次等待)一定要注意重新设置readfds，因为它已经被select破坏了，如果不重新设置的话，你的select语句会返回-1，
+     strerr时会打印出参数设置出错，主要是由于readfds中全部为零，select不知道该去监视哪个sock；
+
+第二：重复等待时,不光要注意重新设置readfds，同时还要注意重新设置一下tv的值，因为select同时也破坏了tv的值
+    （select在返回时会改变tv，改变的公式是tv=tv-等待的时间，所以如果tv时间内没有数据到达的话，select返回时tv会变成0）。
+
+
+
+好的，到此你已经掌握了使用 select 和 recvfrom 进行超时处理的全部知识了，打开编辑器，试试:
+
+
+
+以下是接收端的一个完整的程序，存为test_server.c, 然后将 my_addr.sin_addr.s_addr = inet_addr("192.168.127.130"); 这行中的地址改为你自己的ip地址。
+然后使用gcc -o test_server test_server.c, 编译,得到可执行程序test_server:
+
+/********************************** 接收端的一个完整的程序 ***************************************/
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <netdb.h>
+#include <stdarg.h> 
+#include <string.h>
+
+#define  RECV_LOOP_COUNT 100
+
+int main()
+{
+    unsigned short expect_sn=0;
+    int sockfd;
+    struct sockaddr_in my_addr;
+    //struct sockaddr_in their_addr;
+    int addr_len;
+    
+    if((sockfd=socket(AF_INET,SOCK_DGRAM,0))==-1) {      //SOCK_DGRAM: UDP
+        printf("error in socket");
+        return -2;
+    }
+    
+    my_addr.sin_family=AF_INET;
+    my_addr.sin_port=htons(9450);
+    my_addr.sin_addr.s_addr=inet_addr("192.168.127.130");
+
+
+    memset(my_addr.sin_zero,0,8);
+    addr_len = sizeof(struct sockaddr);
+    int re_flag=1;
+    int re_len=sizeof(int);
+    setsockopt(sockfd,SOL_SOCKET,SO_REUSEADDR,&re_flag,re_len);
+    
+    if(bind(sockfd,(const struct sockaddr *)&my_addr,addr_len)==-1) {
+        printf("error in binding");
+        return -3;
+    }
+
+    struct timeval tv;
+    fd_set readfds;
+    
+    int i=0;
+    unsigned int n=0;
+    char buf[1024];
+    struct sockaddr addr;
+    socklen_t len;
+    
+    while(1) {
+        FD_ZERO(&readfds);
+        FD_SET(sockfd,&readfds);
+        tv.tv_sec=3;
+        tv.tv_usec=10;
+        
+        select(sockfd+1, &readfds, NULL, NULL, &tv);    //
+        
+        if(FD_ISSET(sockfd,&readfds)) {
+            if((n=recvfrom(sockfd,buf,1024,0,&addr,&len))>=0) {
+                printf("in time ,left time %d s ,%d usec\n",tv.tv_sec,tv.tv_usec);
+            }
+        }
+        else
+            printf("timeout ,left time %d s ,%d usec\n",tv.tv_sec,tv.tv_usec);
+    }
+    return 0;
+}
+
+
+
+
+下面是一个发送端的测试程序：
+保存为，test_client.c
+然后修改 my_addr.sin_addr.s_addr=inet_addr("192.168.127.130");中的ip地址为你自己的ip地址，注意一定要和test_server.c中的ip地址一样。
+然后使用gcc -o test_client test_client.c,编译成test_client可执行程序
+
+/********************************** 发送端的测试程序 ***************************************/
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <netdb.h>
+#include <stdarg.h> 
+#include <string.h>
+
+#define  RECV_LOOP_COUNT 100
+
+int main()
+{
+    unsigned short expect_sn=0;
+    int sockfd;
+    struct sockaddr_in my_addr;
+    //struct sockaddr_in their_addr;
+    int addr_len;
+    
+    if((sockfd=socket(AF_INET,SOCK_DGRAM,0))==-1) {
+        printf("error in socket");
+        return -2;
+    }
+    
+    my_addr.sin_family=AF_INET;
+    my_addr.sin_port=htons(9449);
+    my_addr.sin_addr.s_addr=inet_addr("192.168.127.130");
+
+
+    memset(my_addr.sin_zero,0,8);
+    addr_len = sizeof(struct sockaddr);
+    
+    struct sockaddr_in send_addr;
+    send_addr.sin_family=AF_INET;
+    send_addr.sin_addr.s_addr=inet_addr("192.168.127.130");
+    send_addr.sin_port=htons(9450);
+    memset(my_addr.sin_zero,0,8);
+    
+    int sens_addr_len=sizeof(struct sockaddr_in);
+    char sends[]="hello";
+    char input[100];
+    
+    while(1) {
+        scanf("%s", input);
+        sendto(sockfd,sends,6,0,(struct sockaddr*)&send_addr, sens_addr_len);
+    }
+}
+
+
+接着就是测试了
+
+先运行服务端：
+　　./test_server
+
+然后运行客户端
+　　./test_client
+
+
+不在客户端输入数据时，服务端会不断打印超时信息，如果在服务端输入数据，然后回车之后服务端就会接到客户端的数据，就会打印非超时信息。
+
+至此，udp超时之旅就结束了，希望这篇文章对各位有助。
+
+
+

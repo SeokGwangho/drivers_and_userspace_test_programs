@@ -1,0 +1,16 @@
+
+// Client
+busybox ifconfig eth0 hw ether 001122334455
+busybox ifconfig eth0 192.168.0.55
+
+
+
+
+// Server
+busybox ifconfig eth0 hw ether 001122334466
+busybox ifconfig eth0 192.168.0.66
+
+
+
+
+

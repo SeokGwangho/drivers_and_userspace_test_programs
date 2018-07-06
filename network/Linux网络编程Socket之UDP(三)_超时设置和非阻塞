@@ -1,0 +1,164 @@
+------------------------------------------------------------
+Linux网络编程Socket之UDP(三)_超时设置和非阻塞
+------------------------------------------------------------
+前面遗留的两个问题：
+
+1.一个已连接UDP套接字能且仅能与一个对端交换数据报，那么客户端发送广播的时候如何防止recvfrom方法阻塞；
+2.服务端忙的时候，已连接的UDP套接字也会被阻塞。
+
+
+以下图像参考：
+《UNIX Network ProgrammingVolume 1, Third Edition: TheSockets Networking API》
+
+------------------------------------------------------------
+问题一：设置超时
+------------------------------------------------------------
+UNP 14.2
+
+There are three ways to place a timeout on an I/O operation involving a socket:
+
+1.Callalarm, which generates theSIGALRMsignal when the specified time hasexpired. 
+  This involves signal handling, which can differ from oneimplementation to the next, and it may interfere with other existing calls toalarmin the process.
+
+2.Block waiting for I/O inselect, which has a time limit built-in, instead ofblocking in a call toread orwrite.
+
+3.Use the newerSO_RCVTIMEO andSO_SNDTIMEO socket options. The problemwith this approach is that not all implementations support these two socket options. 
+
+以上三种方法分别介绍.
+
+第一种方法我们可以用ios提供的定时器来实现；
+
+第二种方法在recvfrom()方法调用前添加代码如下，这里是设置3秒超时：
+
+        fd_set read_fdset;
+        struct timeval timeout;
+        
+        FD_ZERO(&read_fdset);
+        FD_SET(socketFileDescriptor, &read_fdset);
+        
+        timeout.tv_sec = 3;
+        timeout.tv_usec = 0;
+        
+        int ret;
+        do
+        {
+            ret = select(socketFileDescriptor + 1, &read_fdset, NULL, NULL, &timeout);
+        }
+        while (ret < 0 && errno == EINTR);
+        
+        if (ret == 0)
+        {
+            printf("time out\n");
+            return -1;
+        }
+
+第三种方法代码如下：
+
+    struct timeval timeout = {3,0};
+    setsockopt(socketFileDescriptor, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(struct timeval));
+
+    //设置3秒超时，如果3秒以后无法读到数据，recvfrom方法返回-1，而且errno返回 EWOULDBLOCK 错误.
+
+    n = recvfrom(sockfd, recvline, MAXLINE, 0, NULL, NULL);
+    if (n < 0) {
+        if (errno == EWOULDBLOCK) {
+            printf("time out\n");
+            return -1;
+            
+        } else
+            err_sys("recvfrom error");
+    }
+
+------------------------------------------------------------
+问题二：使用非阻塞式IO
+------------------------------------------------------------
+UNP 16.1
+
+With a nonblocking socket, if the input operation cannot be satisfied (at leastone byte of data for a TCP socket or a complete datagram for a UDP socket),
+we see an immediate return with an error of EWOULDBLOCK. 
+
+
+首先设置非阻塞套接字：
+
+    int ret;
+    int flags = fcntl(socketFileDescriptor, F_GETFL);
+    if (flags == -1)
+    {
+        printf("fcntl error");
+        return -1;
+    }
+    
+    flags |= O_NONBLOCK;
+    ret = fcntl(socketFileDescriptor, F_SETFL, flags);
+    if (ret == -1)
+    {
+        printf("fcntl error");
+        return -1;
+    }
+
+然后运行，打印信息如下：
+
+>> send success
+  >> recvfrom fail--errno = 35
+
+ >> send success
+  >> recvfrom fail--errno = 35
+
+ >> send success
+  >> recvfrom fail--errno = 35
+
+ >> send success
+  >> recvfrom fail--errno = 35
+
+ >> send success
+  >> server said:01&c0:5e:79:fc:0e:0c&192.168.0.1&iShare-R1B011D2199
+
+ >> send success
+  >> recvfrom fail--errno = 35
+
+ >> send success
+  >> recvfrom fail--errno = 35
+
+ >> send success
+  >> recvfrom fail--errno = 35
+
+
+会发现recvfrom()方法返回失败的概率很大，而且errno返回 EWOULDBLOCK 错误，
+这是因为在[非阻塞]的情况下,有可能因为服务器[阻塞(睡眠了)],导致客户端这边的UDP套接字的接收缓冲区为空，因此为了解决这个问题,我们在recvfrom()方法之前添加如下代码：
+
+        fd_set read_fdset;
+        
+        FD_ZERO(&read_fdset);
+        FD_SET(socketFileDescriptor, &read_fdset);
+        
+        int ret;
+        do
+        {
+            ret = select(socketFileDescriptor + 1, &read_fdset, NULL, NULL, NULL); 
+        }
+        while (ret < 0 && errno == EINTR);
+        
+        if (ret == 0)
+        {
+            printf("time out\n");
+            return -1;
+        }
+
+然后运行，打印信息如下：
+
+>> send success
+  >> server said:01&c0:5e:79:fc:0e:0c&192.168.0.1&iShare-R1B011D2199
+
+ >> send success
+  >> server said:01&c0:5e:79:fc:0e:0c&192.168.0.1&iShare-R1B011D2199
+
+ >> send success
+  >> server said:01&c0:5e:79:fc:0e:0c&192.168.0.1&iShare-R1B011D2199
+
+ >> send success
+  >> server said:01&c0:5e:79:fc:0e:0c&192.168.0.1&iShare-R1B011D2199
+
+ >> send success
+  >> server said:01&c0:5e:79:fc:0e:0c&192.168.0.1&iShare-R1B011D2199
+
+
