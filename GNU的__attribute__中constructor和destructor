@@ -1,0 +1,53 @@
+GNU的__attribute__中constructor和destructor
+
+
+
+最近看到一个函数前面用__attribute__((destructor))修饰，搜了整个程序，也没发现哪个地方调用这个函数。
+于是从字面意思猜想，该函数会在程序结束后自动调用，与C++中的析构函数类似。
+  
+------------------------------------------------------------
+第一次接触 GNU 下的attribute，总结一下。
+------------------------------------------------------------
+__attribute__介绍：
+
+　　__attribute__可以设置
+          函数属性(Function Attribute)、
+          变量属性(Variable Attribute)和
+          类型属性(Type Attribute)。
+          
+          __attribute__前后都有两个下划线，并且后面会紧跟一对原括弧，括弧里面是相应的__attribute__参数。
+
+　　__attribute__语法格式为：__attribute__ ( ( attribute-list ) )
+
+若函数被设定为 constructor 属性，则该函数会在main（）函数执行之前被自动的执行。类似的，
+若函数被设定为 destructor  属性，则该函数会在main（）函数执行之后或者exit（）被调用后，被自动的执行。
+
+
+例：
+/* test.c */  
+  
+#include<stdio.h>  
+__attribute__((constructor)) void before_main()  
+{  
+   printf("before main/n");  
+}  
+  
+__attribute__((destructor)) void after_main()  
+{  
+   printf("after main/n");  
+}  
+  
+int main()  
+{  
+   printf("---%s---/n", __func__);  
+   return 0;  
+}  
+
+编译：
+$ gcc test.c -o test 
+
+程序执行结果如下：
+$ ./test 
+before main 
+---main---
+after main
