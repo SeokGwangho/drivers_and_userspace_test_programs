@@ -1,0 +1,286 @@
+linux系统下串口编程：
+    包括write/read的阻塞和非阻塞,以及select()。
+
+
+------------------------------------------------
+打开串口:
+在Linux系统下，打开串口,是通过使用标准的文件打开函数操作.
+
+#include <fcntl.h>
+
+/* 以读/写的方式打开 */
+int fd = open( "/dev/ttyUSB0",O_RDWR);
+
+------------------------------------------------
+设置串口:
+
+所有对串口的操作, 都是通过结构 struct termios 和 几个函数实现的.
+
+tcgetattr        　　//获取属性
+tcsetattr        　　//设置属性
+cfgetispeed    　　　//得到输入速度
+cfsetispeed    　　  //设置输入速度
+cfgetospeed    　　  //得到输出速度
+cfsetospedd    　　  //设置输出速度
+tcdrain             //等待所有输出都被传输
+tcflow              //挂起传输或接收
+tcflush             //刷清未决输入和输出
+tcsendbreak    　　  //送break字符
+tcgetpgrp        　　//得到前台进程组ID
+tcsetpgrp        　　//设置前台进程组ID
+
+
+tcgetattr( 0,&oldstdio);            //获取默认的配置选项 存储到oldstdio结构体中
+tcgetattr( fd,&oldstdio);           //获取当前配置选项 存储到oldstdio结构体中
+tcsetattr( fd,TCSANOW,&oldstdio);　　//TCSANOW 修改立即生效
+cfgetispeed( &oldstdio);　　　　　　  //得到波特率
+cfsetispeed(&oldstdio， B115200 )　　//设置波特率为115200
+
+即可使用read()或open()来操作串口的发送/接收。　　
+------------------------------------------------
+测试代码：
+#include <stdio.h>
+#include <fcntl.h>
+#include <termios.h>
+#include <unistd.h>
+#include <string.h>
+
+int serial_send(int fd, char *data)
+{
+    return write(fd, data, strlen(data));
+}
+
+int main(void)
+{
+    int fd;
+    int num;
+    struct termios oldstdio;
+
+    fd = open("/dev/ttyUSB0", O_RDWR );
+    if (-1 == fd) {
+        printf("cannot open /dev/ttyUSB0\r\n");
+        return -1;
+    }
+    
+    tcgetattr( fd, &oldstdio);
+    cfsetispeed(&oldstdio, B115200);
+    tcsetattr( fd, TCSANOW, &oldstdio);
+    tcflush( fd, TCIFLUSH );
+
+    num = serial_send( fd, "serial baudrate is default \r\n" );
+
+    close(fd);
+    return 0;
+}
+
+在没有数据读取的时候，执行read函数会发生阻塞!
+
+执行下面的程序，在串口接收端没有数据时，返回0，并不会发生阻塞。
+
+#include <stdio.h>
+#include <fcntl.h>
+#include <termios.h>
+#include <unistd.h>
+#include <string.h>
+#include  <pthread.h>
+
+const char *serial_dev = "/dev/ttyUSB0";
+
+typedef struct {
+    char R_flag;
+    char W_flag;
+    int  len;
+    char Data[255];
+} Serial;
+
+typedef struct {
+    int Forward;
+    int left;
+    int rotate;
+    unsigned char Check;
+    char Enter[3];
+} Vehicle;
+
+Vehicle Serial_Tx = {0,0,0,0,{"\r\n"}};
+Serial Serial_D = {0,0,0,{0}};
+int S_fd;
+int wait_flag = 0;
+
+int serial_send( int fd, char *data )
+{
+    return write(S_fd, data, strlen(Data));
+}
+
+int set_opt(int fd,int nSpeed,int nBits,char nEvent,int nStop)
+{
+    struct termios newtio,oldtio;
+    if (tcgetattr(fd,&oldtio)!=0) {
+        perror("error:SetupSerial 3\n");
+        return -1;
+    }
+    
+    bzero(&newtio,sizeof(newtio));
+    //使能串口接收
+    newtio.c_cflag |= CLOCAL | CREAD;
+    newtio.c_cflag &= ~CSIZE;
+
+    newtio.c_lflag &=~ICANON;//原始模式
+    //newtio.c_lflag |=ICANON; //标准模式
+
+    //设置串口数据位
+    switch(nBits) {
+        case 7:
+            newtio.c_cflag |= CS7;
+            break;
+        case 8:
+            newtio.c_cflag |=CS8;
+            break;
+    }
+    
+    //设置奇偶校验位
+    switch(nEvent) {
+        case 'O':
+            newtio.c_cflag |= PARENB;
+            newtio.c_cflag |= PARODD;
+            newtio.c_iflag |= (INPCK | ISTRIP);
+            break;
+        case 'E':
+            newtio.c_iflag |= (INPCK | ISTRIP);
+            newtio.c_cflag |= PARENB;
+            newtio.c_cflag &= ~PARODD;
+            break;
+        case 'N':
+            newtio.c_cflag &=~PARENB;
+            break;
+    }
+    
+    //设置串口波特率
+    switch(nSpeed) {
+        case 2400:
+            cfsetispeed(&newtio,B2400);
+            cfsetospeed(&newtio,B2400);
+            break;
+        case 4800:
+            cfsetispeed(&newtio,B4800);
+            cfsetospeed(&newtio,B4800);
+            break;
+        case 9600:
+            cfsetispeed(&newtio,B9600);
+            cfsetospeed(&newtio,B9600);
+            break;
+        case 115200:
+            cfsetispeed(&newtio,B115200);
+            cfsetospeed(&newtio,B115200);
+            break;
+        case 460800:
+            cfsetispeed(&newtio,B460800);
+            cfsetospeed(&newtio,B460800);
+            break;
+        default:
+            cfsetispeed(&newtio,B9600);
+            cfsetospeed(&newtio,B9600);
+            break;
+    }
+
+    //设置停止位
+    if(nStop == 1)
+        newtio.c_cflag &= ~CSTOPB;
+    else if(nStop == 2)
+        newtio.c_cflag |= CSTOPB;
+    newtio.c_cc[VTIME] = 1;
+    newtio.c_cc[VMIN] = 0;
+    tcflush(fd,TCIFLUSH);
+
+    if(tcsetattr(fd,TCSANOW,&newtio)!=0) {
+        perror("com set error\n");
+        return -1;
+    }
+    return 0;
+}
+
+void * Pthread_Serial( void *arg )
+{
+    int n=0;
+    int ret;
+    struct termios oldstdio;
+    char Rx_Data[100];
+    char Tx_Data[50]={0};
+    
+    fd = open (serial_dev, O_RDWR|O_NOCTTY );
+    if( -1 == fd ) 
+        pthread_exit(NULL);
+    
+    ret = set_opt(fd, 115200, 8, 'N', 1);
+    if(ret == -1) {
+         pthread_exit(NULL);
+    }
+
+    while(1) {
+        ret = read( S_fd, Rx_Data, 100);
+        if( ret >0 ) {
+            Serial_D.len = ret;
+            memset( Serial_D.Data, 0, Serial_D.len+3 );
+            memcpy( Serial_D.Data, Rx_Data, Serial_D.len );        
+            printf("%s",Serial_D.Data);
+        } else {
+            usleep(100000);
+            sprintf( Tx_Data,"send %d\r\n", n++ );
+            serial_send( fd, Tx_Data );    
+            //printf("send ok%d\r\n",n++);    
+        }
+    }
+    
+    pthread_exit(NULL);
+}
+
+int main(void)
+{
+    pthread_t pthread_id;
+    
+    //create a thread
+    pthread_create( &pthread_id, NULL, &Pthread_Serial, NULL );
+    usleep(1000);
+
+    if (-1 == fd) {
+        printf("error: cannot open serial dev\r\n");
+        return -1;
+    }   
+    
+    while(1) {
+        usleep(1000);    
+    }
+    
+    return 0;
+}
+
+
+可以使用select函数来判断,有没有接收到数据: 
+int read_datas_tty(int fd,char *rcv_buf,int sec,int usec) //将此函数放到read前面调用即可
+{
+    int retval;
+    unsigned char tempchar2;
+    fd_set rfds;
+    struct timeval tv;
+    int ret,pos;
+
+    tv.tv_sec = sec;    //set the rcv wait time
+    tv.tv_usec = usec;  //100000us = 0.1s
+
+    while(1) {
+        FD_ZERO(&rfds);
+        FD_SET(fd,&rfds);
+        retval = select(fd+1,&rfds,NULL,NULL,&tv);
+        if(retval ==-1) {
+            printf("select error\r\n");
+            break;
+        } else if(retval) {
+            ret= read(fd,rcv_buf,1);
+            tempchar2 = rcv_buf;
+            printf("rcv_buf is %s\n",rcv_buf);
+        } else {
+            break;
+        }
+    }
+    return 1;
+}
+
