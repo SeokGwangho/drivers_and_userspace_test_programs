@@ -1,0 +1,125 @@
+linux_select函数用法(阻塞与非阻塞IO)
+
+
+select系统调用,是用来让我们的程序监视多个文件句柄的状态变化的。
+程序会停在select这里等待，直到被监视的文件句柄有一个或多个发生了状态改变。
+
+关于文件句柄，其实就是一个整数，我们最熟悉的句柄是0、1、2三个. 
+0是标准输入，1是标准输出，2是标准错误输出, 对应的 FILE * 结构的表示就是stdin、stdout、stderr。
+
+当然，你打开别的设备节点，文件之类，fd当然就不同了。
+
+函数原型：
+int select(
+        int n, 
+        fd_set *readfds, 
+        fd_set *writefds, 
+        fd_set *exceptfds,
+        struct timeval *timeout);
+
+参数：
+n代表文件描述词加1；
+readfds、writefds 和exceptfds：称为描述词组，是用来回传该描述词的读，写或例外的状况。
+
+下面的宏，提供了处理这三种描述词组的方式：
+        FD_CLR(inr fd,fd_set* set)    //用来清除描述词组set中相关fd 的位
+        FD_ISSET(int fd,fd_set *set)  //用来测试描述词组set中相关fd 的位是否为真
+        FD_SET（int fd,fd_set*set)    //用来设置描述词组set中相关fd 的位
+        FD_ZERO（fd_set *set)         //用来清除描述词组set的全部位
+
+参数timeout为结构timeval，用来设置select()的等待时间，其结构定义如下：
+struct timeval
+{
+       time_t tv_sec;
+       time_t tv_usec;
+};
+如果参数timeout设为NULL，则表示select()没有timeout。
+
+
+
+select()系统调用执行结果：
+      执行成功, 则返回文件描述词状态已改变的个数。
+      
+      如果返回0, 代表在描述词状态改变前已超过timeout时间，没有返回。
+      
+      错误发生时则返回-1，错误原因存于errno，此时参数readfds，writefds，exceptfds和timeout的值变成不可预测。
+            错误值可能为：
+            EBADF 文件描述词为无效的或该文件已关闭
+            EINTR 此调用被信号所中断
+            EINVAL 参数n 为负值。
+            ENOMEM 核心内存不足
+
+
+
+常见的程序片段如下：
+
+fs_set readset;
+FD_ZERO(&readset);
+FD_SET(fd,&readset);
+select(fd+1,&readset,NULL,NULL,NULL);
+if(FD_ISSET(fd,readset){……}
+
+
+例子： 检测 键盘有/无输入
+
+完整的程序如下：
+#include<sys/time.h>
+#include<sys/types.h>
+#include<unistd.h>
+#include<string.h>
+#include<stdlib.h>
+#include<stdio.h>
+int main()
+{
+        char buf[10]="";
+        fd_set rdfds;
+        struct timeval tv;
+        int ret;
+        FD_ZERO(&rdfds);
+        FD_SET(0,&rdfds);   //文件描述符0表示stdin键盘输入
+         tv.tv_sec = 3;
+        tv.tv_usec = 500;
+        ret = select(1,&rdfds,NULL,NULL,&tv);	   //第一个参数是监控句柄号+1
+        if(ret<0)
+              printf("selcet error\r\n");
+        else if(ret == 0)
+              printf("timeout \r\n");
+        else
+              printf("ret = %d \r\n",ret);
+ 
+        if(FD_ISSET(0,&rdfds)){  		//监控输入的确是已经发生了改变
+              printf(" reading");
+              read(0,buf,9);                 //从键盘读取输入
+         }
+         write(1,buf,strlen(buf));  		//在终端中回显
+         printf(" %d \r\n",strlen(buf));
+         return 0;
+}
+
+用gcc编译，执行, 可以得到执行结果，如果不输入，则一会儿会回显：...
+如果有输入，则回显：...
+
+===========================================================================================
+阻塞（Ｂlock）
+       当进程调用一个阻塞的系统函数时，该进程被置于睡眠(Sleep)状态，这时内核调度其它进程运行，直到该进程等待的事件发生了它才有可能继续运行。
+       (比如网络上接收到数据包，或者调用sleep 指定的睡眠时间到了)
+       
+       与睡眠状态相对的是运行(Running)状态，在Linux内核中处于运行状态的进程分为两种情况：  
+       
+           正在被调度执行 和 就绪状态。
+           
+       假设一个进程,同时监视多个设备，
+       如果read(设备1)是阻塞的，那么只要设备1没有数据到达就会一直阻塞在设备1的read 调用上，即使设备2有数据到达也不能处理.
+       使用非阻塞I/O, 就可以避免设备2得不到及时处理。
+       
+       在open一个设备时指定了O_NONBLOCK 标志，read / write 就不会阻塞。
+       
+       以read 为例，如果设备暂时没有数据可读就返回-1，同时置errno 为EWOULDBLOCK(或者EAGAIN,这两个宏定义的值相同),表示本来应该阻塞在这里，
+       那么调用者不是阻塞在这里死等，这样可以同时监视多个设备。
+      
+      
+      非阻塞I/O有一个缺点，如果所有设备都一直没有数据到达，调用者需要反复查询做无用功.
+      
+      如果阻塞在那里, 操作系统可以调度别的进程执行，就不会做无用功了。
+      
+      select(2) 函数可以阻塞地同时监视多个设备，还可以设定阻塞等待的超时时间，从而圆满地解决了这个问题。
