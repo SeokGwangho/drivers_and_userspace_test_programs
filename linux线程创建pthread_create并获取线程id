@@ -51,8 +51,6 @@ void* Func_pth1()
     //printf("child thread tid = %u\n", pthread_self());
 }
  
- 
- 
 int main()
 {
     int iRet = 0;
@@ -64,10 +62,16 @@ int main()
     {
         printf("create pthread fail\n");
     }
-    printf("---pthread_t = %u\n", (unsigned int)pth1);
+    //printf("pthread_t = %u\n", (unsigned int)pth1);
  
     pthread_join(pth1, NULL);
  
     return 0;
 }
+
+运行结果：
+main gettid = 4598
+main pthread_self = 2342339912
+child gettid = 4599
+child pthread_self= 2331841776
 
