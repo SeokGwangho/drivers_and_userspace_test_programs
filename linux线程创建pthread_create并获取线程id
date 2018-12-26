@@ -1,0 +1,73 @@
+linux线程创建pthread_create并获取线程id.txt
+
+编译：  
+    需要加 -lpthread 选项。
+
+函数原型：
+#include<pthread.h>
+
+int  pthread_create(pthread_t *thread, pthread_attr_t *attr, void *(*start_routine)(void *arg), void *arg);
+
+参数:
+　　第一个参数为指向线程标识符的指针。
+　　第二个参数用来设置线程属性。
+　　第三个参数是线程运行函数的地址。
+　　第四个参数是运行函数的参数。
+
+返回值：
+若成功则返回0，否则返回出错编号。
+
+--------------------------------------------------------------------------
+分析：
+1.pthread_self()是POSIX的实现，它的返回值是pthread_t，pthread_t在linux中实际是无符号长整型，即unsigned long。
+  gettid是系统调用，它的返回值是pid_t，在linux上是一个无符号整型。
+  
+  但glibc并没有实现该函数，只能通过Linux的系统调用syscall来获取。
+
+2.pthread_self是为了区分同一进程中的不同的线程, 是由thread的实现来决定的。
+  pthread_self返回的是同一个进程中各个线程之间的标识号，对于这个进程内是唯一的，
+  而不同进程中，每个线程返回的pthread_self可能返回的是一样的。
+  
+  而gettid获取的线程id和pid是有关系的，因为在linux中线程其实也是一个进程(clone)，所以它的线程ID也是pid_t类型。
+  在一个进程中，主线程的线程id和进程id是一样的，该进程中其他的线程id则在linux系统内是唯一的，gettid是不可移植的。
+
+3.Linux中的POSIX线程库实现的线程其实也是一个进程（LWP），只是该进程与主进程（启动线程的进程）共享一些资源而已，比如代码段，数据段等。
+
+
+还有，如果想知道线程的真实的pid---tid:  
+  比如【进程P1】要向另外一个【进程P2】中的【某个线程】发送信号时，既不能使用P2的pid，更不能使用线程的pthread id，
+  而只能使用该线程的真实pid，称为tid。
+--------------------------------------------------------------------------
+例子：
+
+#include <stdio.h>
+#include <pthread.h>
+#include <sys/syscall.h>
+ 
+void* Func_pth1()
+{
+    printf("child gettid = %u\n", syscall(SYS_gettid));  
+    printf("child pthread_self= %u\n", (unsigned int)pthread_self());
+    //printf("child thread tid = %u\n", pthread_self());
+}
+ 
+ 
+ 
+int main()
+{
+    int iRet = 0;
+    pthread_t pth1;
+    printf("main gettid = %u\n", syscall(SYS_gettid));  
+    printf("main pthread_self = %u\n", (unsigned int)pthread_self());  
+    iRet =  pthread_create(&pth1, NULL, (void*)Func_pth1, NULL);
+    if(iRet)
+    {
+        printf("create pthread fail\n");
+    }
+    printf("---pthread_t = %u\n", (unsigned int)pth1);
+ 
+    pthread_join(pth1, NULL);
+ 
+    return 0;
+}
+
