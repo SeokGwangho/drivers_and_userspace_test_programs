@@ -1,12 +1,8 @@
 ------------------------------------------------------------------
 Linux的system和popen函数总结
 ------------------------------------------------------------------
-执行流程
-信号处理
-system函数源码
-popen函数源码
-system函数返回值判断
-------------------------------------------------------------------
+大致内容：
+       执行流程，信号处理，system函数返回值判断
 
 
 
@@ -158,27 +154,18 @@ int main()
     pid_t status;
     status = system("./test.sh");
 
-    if (-1 == status)
-    {
+    if (-1 == status) {
         printf("system error!");
-    }
-    else
-    {
+    } else {
         printf("exit status value = [0x%x]\n", status);
 
-        if (WIFEXITED(status))
-        {
-            if (0 == WEXITSTATUS(status))
-            {
+        if (WIFEXITED(status)) {
+            if (0 == WEXITSTATUS(status)) {
                 printf("run shell script successfully.\n");
-            }
-            else
-            {
+            } else {
                 printf("run shell script fail, script exit code: %d\n", WEXITSTATUS(status));
             }
-        }
-        else
-        {
+        } else {
             printf("exit status = [%d]\n", WEXITSTATUS(status));
         }
     }
@@ -197,3 +184,4 @@ low-order 8 bits of the status argument
 that the child process passed to _exit()
 or exit(), or the value the child
 process returned from main().
+
