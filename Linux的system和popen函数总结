@@ -1,0 +1,199 @@
+------------------------------------------------------------------
+Linux的system和popen函数总结
+------------------------------------------------------------------
+执行流程
+信号处理
+system函数源码
+popen函数源码
+system函数返回值判断
+------------------------------------------------------------------
+
+
+
+-----------------------------------------
+system()和popen()介绍：
+-----------------------------------------
+在linux中可以通过system()来执行一个shell命令，popen()也是执行shell命令并且通过管道和shell命令进行通信。
+system()、popen()给我们处理了fork、exec、waitpid等一系列的处理流程，让我们只需要关注最后的返回结果(函数的返回值)即可。
+
+-----------------------------------------
+执行流程：
+-----------------------------------------
+从两个函数的源码（下面）可以看到system（）和popen（）都是执行了类似的运行流程，大致是fork->execl->return。
+
+但是我们看到
+system（） 在执行期间调用进程会一直等待shell命令执行完成(waitpid等待子进程结束)才返回，但是
+popen（）  无须等待shell命令执行完成就返回了。
+
+可以理解为system（）串行执行，在执行期间调用进程放弃了”控制权”， popen（）为并行执行。
+
+popen（）中的子进程，如果你没有在调用popen()后调用pclose(), 那么这个子进程就可能变成”僵尸”。
+
+pclose()的源码，其实根据system()的源码差不多可以猜测出pclose的源码就是system中第4部分的内容(while(waitpid(pid, NULL, 0) == -1){...} //4. wait child process exit)
+
+
+-----------------------------------------
+它俩的信号处理:
+-----------------------------------------
+system()中对SIGCHLD、SIGINT、SIGQUIT都做了处理，但是在
+popen() 中没有对信号做任何的处理。
+
+SIGCHLD是子进程退出的时候发给父进程的一个信号，
+
+问： system()中为什么要屏蔽SIGCHLD信号? 
+答： 是为了system()调用能够及时的退出，并且能够正确的获取子进程的退出状态(成功回收子进程)。
+
+
+
+popen（）没有屏蔽SIGCHLD，主要的原因就是popen是”并行”的。
+
+如果在调用popen的时候屏蔽了SIGCHLD，那么如果在调用popen（）和pclose（）之间调用进程又创建了其它的子进程，并且
+调用的进程注册了SIGCHLD信号处理句柄来处理子进程的回收工作(waitpid)， 那么这个回收工作会一直阻塞到pclose（）调用。
+
+这也意味着，
+如果调用进程在pclose（）之前执行了一个wait()操作的话，就可能获取到popen创建的子进程的状态，这样在调用pclose的时候就会回收(waitpid)子进程失败，返回-1，
+同时设置errno为ECHLD，标示pclose无法获取子进程状态。
+system()函数中屏蔽SIGINT，
+popen() 函数中没有屏蔽SIGINT、SIGQUIT的原因，也还是因为popen是”并行的”，不能影响其它”并行”进程。
+
+
+-----------------------------------------
+总结：
+-----------------------------------------
+system（） 是执行shell命令最后返回是否执行成功。
+popen（）  是执行命令并且通过管道和shell命令进行通信。
+
+在setuid、setgid进程中，千万不要使用system（）和popen（）。
+
+
+
+-----------------------------------------------------------------------------------------------------------
+system()函数源码：
+-----------------------------------------------------------------------------------------------------------
+
+
+-----------------------------------------------------------------------------------------------------------
+popen()函数源码：
+-----------------------------------------------------------------------------------------------------------
+
+
+
+-----------------------------------------------------------------------------------------------------------
+system()函数返回值判断：
+-----------------------------------------------------------------------------------------------------------
+status = system("ls -la");
+
+如何正确判断system()函数是否正确执行？
+
+仅判断 status == 0  ？  或者
+仅判断 status != -1 ？ 
+
+都是错的。
+
+
+-----------------------------
+man中对于system的说明
+-----------------------------
+RETURN VALUE
+       The value returned is -1 on error (e.g.  fork() failed), and the return
+       status  of  the command otherwise.  This latter return status is in the
+       format specified in wait(2).  Thus, the exit code of the  command  will
+       be  WEXITSTATUS(status).   In  case  /bin/sh could not be executed, the
+       exit status will be that of a command that does exit(127).
+
+
+
+
+system（）函数对返回值的处理， 涉及3个阶段：
+
+阶段1： 创建子进程等准备工作。如果失败，返回-1。
+
+阶段2： 调用/bin/sh拉起shell脚本，如果拉起失败或者shell未正常执行结束（参见备注1），原因值被写入到status的 低8~15 bit位中。
+      system（）的man中只说明了会写127这个值，但实测发现还会写126等值。
+      
+阶段3： 如果shell脚本正常执行结束，将shell返回值填到status的 低8~15 bit位中。
+
+
+
+备注1：
+只要能够调用到/bin/sh，并且执行shell过程中没有被其他信号异常中断，都算正常结束。
+
+比如：
+不管shell脚本中返回什么原因值，是0还是非0，都算正常执行结束。
+即使shell脚本不存在或没有执行权限，也都算正常执行结束。
+如果shell脚本执行过程中被强制kill掉等情况则算异常结束。
+
+
+问：  如何判断阶段2中，shell脚本是否正常执行结束呢？
+答：    系统提供了宏： WIFEXITED(status)。
+      如果WIFEXITED(status)为真，则说明正常结束。
+
+问：  如何取得阶段3中的shell返回值？ 
+答：  你可以直接通过右移8bit来实现， 但安全的做法是使用系统提供的宏： WEXITSTATUS(status)。
+
+
+由于我们一般在shell脚本中会通过返回值判断本脚本是否正常执行，如果成功返回0，失败返回正数。
+
+所以综上，
+判断一个system（）函数调用shell脚本是否正常结束的方法， 应该是如下3个条件同时成立：
+  （1）-1 != status
+  （2）WIFEXITED(status)为真
+  （3）0 == WEXITSTATUS(status)
+
+当shell脚本不存在、没有执行权限等，场景下时，以上前2个条件仍会成立，此时WEXITSTATUS(status)为127，126等数值。
+所以，我们在shell脚本中不能将127，126等数值定义为返回值，否则无法区分中是shell的返回值，还是调用shell脚本异常的原因值。
+shell脚本中的返回值最好多1开始递增。
+
+
+-------------------------------------------
+判断shell脚本正常执行结束的健全代码如下：
+-------------------------------------------
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+
+int main()
+{
+    pid_t status;
+    status = system("./test.sh");
+
+    if (-1 == status)
+    {
+        printf("system error!");
+    }
+    else
+    {
+        printf("exit status value = [0x%x]\n", status);
+
+        if (WIFEXITED(status))
+        {
+            if (0 == WEXITSTATUS(status))
+            {
+                printf("run shell script successfully.\n");
+            }
+            else
+            {
+                printf("run shell script fail, script exit code: %d\n", WEXITSTATUS(status));
+            }
+        }
+        else
+        {
+            printf("exit status = [%d]\n", WEXITSTATUS(status));
+        }
+    }
+
+    return 0;
+}
+
+
+WIFEXITED(stat_val) Evaluates to a non-zero value if status
+was returned for a child process that
+terminated normally.
+
+WEXITSTATUS(stat_val) If the value of WIFEXITED(stat_val) is
+non-zero, this macro evaluates to the
+low-order 8 bits of the status argument
+that the child process passed to _exit()
+or exit(), or the value the child
+process returned from main().
