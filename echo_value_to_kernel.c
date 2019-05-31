@@ -35,7 +35,11 @@ static ssize_t shi_test_drv_read(struct file *filp, char __user *buf, size_t siz
 }
 
 /*
- * Userspace:	echo val > /dev/shi_dev 	//val: 0~999999999
+ * Userspace:	echo val > /dev/shi_dev 	//val: 0~999999999, See char kbuf[10] 
+ * 
+ * 分析结论:
+ *     用 echo 1 > /dev/shi_dev 命令往设备节点写数据时， write函数要返回已经写入的字节数，不要返回0。
+ *     否则内核会尝试再写入，导致无限循环调用驱动的write函数。
  */
 static ssize_t shi_test_drv_write(struct file *filp, const char __user *buf, size_t size, loff_t *offset)
 {
