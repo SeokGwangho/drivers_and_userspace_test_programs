@@ -1,0 +1,108 @@
+--------------------------------------------------------------------------------
+Linux socket CAN test	
+
+//Virtual CAN (CAN 2.0)
+--------------------------------------------------------------------------------
+Linux Ubuntu 上で
+簡単にCAN 送/受信出来るツール: OSSのcan-utilsのcansend/camdumpにより、CANの送/受信のテストをやってみる。
+vcanを使ってテストするので、実際のHardwareはない。
+
+//https://github.com/linux-can/can-utils
+//https://github.com/linux-can
+//
+//or
+//https://elinux.org/CAN_Bus
+//https://git.kernel.org/pub/scm/linux/kernel/git/mkl/linux-can.git
+
+
+--------------------
+ツールDownload構築:
+--------------------
+$ sudo apt-get install -y can-utils
+$ sudo modprobe can
+$ sudo modprobe vcan
+$ sudo ip link add name vcan0 type vcan
+$ sudo ifconfig vcan0 up
+
+
+//Linux CANドライバ:
+//実はLinux Kernelでは、CANドライバがmainlineでサポートされている：
+//	https://www.kernel.org/doc/Documentation/networking/can.txt
+//
+//KernelのCAN Driverを有効にする:
+//	CONFIG_CAN=y
+//	CONFIG_CAN_RAW=y
+//	CONFIG_CAN_BCM=y
+//	CONFIG_CAN_GW=y
+//	CONFIG_CAN_RCAR=y
+//
+// を有効にしてkernelをBuildすればOK。
+
+
+
+--------------------
+cansendとcandump：
+--------------------
+cansend/candumpは簡易的なテストツールとして利用できる。
+一方で、CANのデータ部(CANでの8 Byteのもの)のみしか扱えず、
+CRC等CANコントローラレベルで弾かれるものに関しては、指定できないようだ。
+また、絶対/相対時刻の記録など、ログに必要な機能を備えている。
+
+----------
+cansend：
+----------
+cansendの書式を次に示す．cansendで指定する値は16進数扱い．can_idは3桁で指定する．
+
+cansend [dev_id] [can_id]#[data]
+
+
+----------
+candump：
+----------
+candumpでは受信するCAN IDをフィルタすることができ、書式は次に示す。
+
+can_maskによって特定範囲のCAN IDを指定できる。
+フィルタを特に指定しない場合、すなわち1つのCAN IDの指定のみで済む場合は、0xFFF等としておけば良い。
+だが、candumpでは10進数扱いとなる。
+
+[can_id]:[can_mask] matches when [received_can_id] & [can_mask] == [can_id] & [mask]
+[can_id]~[can_mask] matches when [received_can_id] & [can_mask] != [can_id] & [mask]
+
+
+
+--------------------------------------------------------------------------------
+vcan0上でのCAN 送/受信テスト
+--------------------------------------------------------------------------------
+----------------------------------------
+例1
+----------------------------------------
+Terminal 1で次を実行する:
+	$ candump -ac -t z vcan0,0x100:0xFFF
+
+
+Terminal 2で次を実行する:
+	$ cansend vcan0 0FF#1122334455667788
+	$ cansend vcan0 100#1122334455667788
+	$ cansend vcan0 100#1122334455667788
+	$ cansend vcan0 101#1122334455667788
+
+Terminal 1出力結果：
+	 (000.000000)  vcan0  100   [8]  11 22 33 44 55 66 77 88   '."3DUfw.'
+	 (012.270381)  vcan0  100   [8]  11 22 33 44 55 66 77 88   '."3DUfw.'
+
+----------------------------------------
+例2: CAN ID  0x100/0x101 のみを受信する例
+----------------------------------------
+Terminal 1で次を実行する:
+	candump -ac -t z vcan0,0x100:0x1FE
+
+Terminal 2で次を実行する:
+	$ cansend vcan0 0FF#1122334455667788
+	$ cansend vcan0 100#1122334455667788
+	$ cansend vcan0 101#1122334455667788
+	$ cansend vcan0 102#1122334455667788
+
+
+Terminal 1出力結果：
+	 (000.000000)  vcan0  100   [8]  11 22 33 44 55 66 77 88   '."3DUfw.'
+	 (006.134809)  vcan0  101   [8]  11 22 33 44 55 66 77 88   '."3DUfw.'
