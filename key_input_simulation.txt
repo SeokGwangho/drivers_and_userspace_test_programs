@@ -1,74 +1,59 @@
 
 #include <linux/input.h>
-
 #include <sys/types.h>
-
-#include <sys/stat.h>
-
+#include <sys/stat.h
 #include <fcntl.h>
-
 #include <unistd.h>
-
 #include <stdint.h>
-
 #include <stdio.h>
 
+
 /*
-
 struct input_event {
-
 	struct timeval time;
-
 	__u16 type;
-
 	__u16 code;
-
 	__s32 value;
-
 };
+*/
 
+#define DEVNAME "/dev/input/event4"
+#define KEYDOWN	1
+#define KEYUP	0
 #define EV_KEY 0x01
 
-*/
-int reportkey(int fd, uint16_t type, uint16_t keycode, int32_t value)
+int push_key(int fd, uint16_t type, uint16_t keycode, int32_t value)
 {
-
 	struct input_event event;
-
 	event.type = type;
-
 	event.code = keycode;
-
 	event.value = value;
 
 	gettimeofday(&event.time, 0);
 
 	if (write(fd, &event, sizeof(struct input_event)) < 0) {
-
 		printf("report key error!\n");
-
 		return -1;
-
 	}
 
 	return 0;
-
 }
-
-#define DEVNAME "/dev/input/event4"
-#define KEYDOWN	1
-#define KEYUP	0
 
 int main(int argc, char *argv[])
 {
-
 	uint16_t keycode;
-
 	int k_fd;
 
 	k_fd = open(DEVNAME, O_RDWR);
-
 	if (k_fd < 0) {
+		printf("open error!\n");
+		return k_fd;
+	}
 
-		printf(
-
+	keycode = KEY_A;
+	push_key(k_fd, EV_KEY, keycode, KEYDOWN);
+	push_key(k_fd, EV_KEY, keycode, KEYUP);
+	
+	close(k_fd);
+	return 0;
+}
