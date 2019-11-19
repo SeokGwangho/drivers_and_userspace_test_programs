@@ -1,11 +1,11 @@
 
+#include <stdint.h>
+#include <stdio.h>
 #include <linux/input.h>
 #include <sys/types.h>
 #include <sys/stat.h
 #include <fcntl.h>
 #include <unistd.h>
-#include <stdint.h>
-#include <stdio.h>
 
 
 /*
@@ -17,7 +17,7 @@ struct input_event {
 };
 */
 
-#define DEVNAME "/dev/input/event4"
+#define DEVNAME "/dev/input/event4"  //input device number
 #define KEYDOWN	1
 #define KEYUP	0
 #define EV_KEY 0x01
