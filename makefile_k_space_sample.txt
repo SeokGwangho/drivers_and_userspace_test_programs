@@ -1,0 +1,10 @@
+K_DIR = /home/seokgh/Documents/linux/
+
+all:
+	make -C $(K_DIR) M=`pwd` modules 
+
+clean:
+	make -C $(K_DIR) M=`pwd` modules clean
+	rm -rf modules.order
+
+obj-m	+= my_leds_drv.o
