@@ -1,10 +1,23 @@
+-----------------------------------------------------------
+ver1
+-----------------------------------------------------------
+KDIR = /lib/modules/$(shell uname -r)/build
+
+obj-m += test_driver.o
+all:
+    make -C $(KDIR)  M=$(shell pwd) modules
+clean:
+    make -C $(KDIR)  M=$(shell pwd) clean
+    
+-----------------------------------------------------------
+ver2
+-----------------------------------------------------------
 K_DIR = /home/seokgh/Documents/linux/
 
+obj-m	+= my_leds_drv.o
 all:
 	make -C $(K_DIR) M=`pwd` modules 
 
 clean:
 	make -C $(K_DIR) M=`pwd` modules clean
 	rm -rf modules.order
-
-obj-m	+= my_leds_drv.o
