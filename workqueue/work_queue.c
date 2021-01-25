@@ -26,7 +26,7 @@
  * B.カーネルのDefaultのやつ(workqueueと処理thread)を使わず、自分独自のworkqueueと、独自の処理threadを新規して、処理する時に使うAPI:　　<--- 処理が上より早いはず
  * 	struct workqueue_struct *create_workqueue(const char *name);
  *
- * 	int queue_work(struct workqueue_struct *wq, struct work_struct *work);
+ * 	int queue_work(struct workqueue_struct *wq, struct work_struct *work);		//指定したworkqueueに、workを入れる
  * 	int queue_delayed_work(struct workqueue_struct *wq, struct work_struct *work, unsigned long delay);
  *
  * 	void flush_workqueue(struct workqueue_struct *wq);
