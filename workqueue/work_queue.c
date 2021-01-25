@@ -15,7 +15,7 @@
  * create_workqueue()             を使用して、workqueueを作成したら、                    Kernelは、各CPUごとのworker threadを作成する。(Threadによって、処理を並列化できるように)
  *
  * A.カーネルのDefaultのworkqueueと処理threadを使って、処理を行う時に使うAPI:  	<--- Defaultのworkqueueの処理threadが重いと、処理がもっと遅くなる
- *	INIT_WORK(_work, _func, _data);		//init and bind. ユーザーが指定した
+ *	INIT_WORK(_work, _func, _data);		//init and bind. ユーザーが指定した処理関数_funcと、その処理関数への引数を、workに設定するため
  *
  *	int schedule_work(struct work_struct *work);
  *	int schedule_delayed_work(struct work_struct *work, unsigned long delay);
