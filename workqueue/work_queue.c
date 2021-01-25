@@ -18,7 +18,7 @@
  *	int schedule_work(struct work_struct *work);
  *	int schedule_delayed_work(struct work_struct *work, unsigned long delay);
  *
- *	void flush_scheduled_work(void);	//list内のすべてのworkが実行されるまで、待ち続ける
+ *	void flush_scheduled_work(void);	//Defaultのワークキューを更新。List内のすべてのワークが実行されるまで、待ち続ける
  *	int cancel_delayed_work(struct work_struct *work);
  *
  * B.カーネルのDefaultのやつ(workqueueと処理thread)を使わず、自分独自のworkqueueと、独自の処理threadを新規して、処理する時に使うAPI:　　<--- 処理が上より早いはず
