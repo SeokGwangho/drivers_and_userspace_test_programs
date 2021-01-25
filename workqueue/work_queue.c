@@ -1,12 +1,21 @@
-/*
+/* 
+对于使用者，基本上只需要做 3 件事情，依次为：
+
+    创建工作队列 ( 如果使用内核默认的工作队列，连这一步都可以省略掉 )
+    创建工作项
+    向工作队列中提交工作项
+
+ * Workqueueの使用者にとっては、3つのことをやれば良い:
+ * 1.workqueueを新規作成する(もし、カーネルのDefaultのworkqueueを使う場合は、ここは省略できる)
+ * 2.workを新規作成する
+ * 3.workをworkqueueに入れる
+ *
+ * workqueueを作成する方法:
  * create_singlethread_workqueue() VS create_workqueue()
- *
- * create_singlethread_workqueue()を使用してworkqueueを作成。
- * SMPシステムの場合でも、Kernelは、1つのCPUでのworker threadのみ作成。
- *
- * create_workqueue()を使用して、SMPシステムのworkqueueを作成すると、Kernelは各CPUのworker threadを作成。
- * (Threadによって処理を並列化できるように)
- *
+ * 
+ * create_singlethread_workqueue()を使用して、workqueueを作成したら、(SMPシステムの場合でも)Kernelは、1つのCPUのみでのworker threadを作成する。
+ * create_workqueue()             を使用して、workqueueを作成したら、                    Kernelは、各CPUごとのworker threadを作成する。(Threadによって、処理を並列化できるように)
+ * 　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　
  * API:
  * INIT_WORK(_work, _func, _data);						//Userが指定したfuncと、funcに渡すパラメーターdataを、work_struct内のメンバーfuncとdataに設定するため
  * int schedule_work(struct work_struct *work);
