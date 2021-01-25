@@ -8,10 +8,10 @@
  * (Threadによって処理を並列化できるように)
  *
  * API:
- * INIT_WORK(_work, _func, _data);
+ * INIT_WORK(_work, _func, _data);						//Userが指定したfuncと、funcに渡すパラメーターdataを、work_struct内のメンバーfuncとdataに設定するため
  * int schedule_work(struct work_struct *work);
- * int schedule_delayed_work(struct work_struct *work, unsigned long delay);
- * void flush_scheduled_work(void);
+ * int schedule_delayed_work(struct work_struct *work, unsigned long delay);	//遅延してから、実行する
+ * void flush_scheduled_work(void);						//ListをFlushする、List上の全てのworkが、実行完了するまで、待ち続ける
  * int cancel_delayed_work(struct work_struct *work);
  * ...
  *
