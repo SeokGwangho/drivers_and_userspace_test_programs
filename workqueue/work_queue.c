@@ -7,6 +7,14 @@
  * create_workqueue()を使用して、SMPシステムのworkqueueを作成すると、Kernelは各CPUのworker threadを作成。
  * (Threadによって処理を並列化できるように)
  *
+ * API:
+ * INIT_WORK(_work, _func, _data);
+ * int schedule_work(struct work_struct *work);
+ * int schedule_delayed_work(struct work_struct *work, unsigned long delay);
+ * void flush_scheduled_work(void);
+ * int cancel_delayed_work(struct work_struct *work);
+ * ...
+ *
  * Sample:
  *
  *	 struct work_struct xxx_wq;
