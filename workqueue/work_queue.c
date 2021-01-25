@@ -1,4 +1,6 @@
 /* 
+ * workqueue: threadコンテキストなので、sleep可だ --- 急ぐ必要が内時に使えば良い
+ *
  * Workqueueの使用者側は、下記のことをやれば良い:
  * 1.workqueueを新規作成する(もし、カーネルのDefaultのworkqueueを使う場合は、ここは省略できる)
  * 2.workを新規作成する
