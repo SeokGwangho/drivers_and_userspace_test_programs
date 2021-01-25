@@ -1,22 +1,35 @@
 /* 
- * Workqueueの使用者側は、3つのことをやれば良い:
+ * Workqueueの使用者側は、下記のことをやれば良い:
  * 1.workqueueを新規作成する(もし、カーネルのDefaultのworkqueueを使う場合は、ここは省略できる)
  * 2.workを新規作成する
  * 3.workをworkqueueに入れる
+ * 4.schedule_work()
+ * 5.flush_workqueue() & destroy_workqueue()
  *
  * workqueueを作成する方法:
  * create_singlethread_workqueue() VS create_workqueue()
  * 
  * create_singlethread_workqueue()を使用して、workqueueを作成したら、(SMPシステムの場合でも)Kernelは、1つのCPUのみでのworker threadを作成する。
  * create_workqueue()             を使用して、workqueueを作成したら、                    Kernelは、各CPUごとのworker threadを作成する。(Threadによって、処理を並列化できるように)
- * 　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　
- * API:
- * INIT_WORK(_work, _func, _data);						//Userが指定したfuncと、funcに渡すパラメーターdataを、work_struct内のメンバーfuncとdataに設定するため
- * int schedule_work(struct work_struct *work);
- * int schedule_delayed_work(struct work_struct *work, unsigned long delay);	//遅延してから、実行する
- * void flush_scheduled_work(void);						//ListをFlushする、List上の全てのworkが、実行完了するまで、待ち続ける
- * int cancel_delayed_work(struct work_struct *work);
- * ...
+ *
+ * A.カーネルのDefaultのworkqueueと処理threadを使って、処理を行う時に使うAPI:  	<--- Defaultのworkqueueの処理threadが重いと、処理がもっと遅くなる
+ *	INIT_WORK(_work, _func, _data);
+ *
+ *	int schedule_work(struct work_struct *work);
+ *	int schedule_delayed_work(struct work_struct *work, unsigned long delay);
+ *
+ *	void flush_scheduled_work(void);
+ *	int cancel_delayed_work(struct work_struct *work);
+ *
+ * B.カーネルのDefaultのやつ(workqueueと処理thread)を使わず、自分独自のworkqueueと、独自の処理threadを新規して、処理する時に使うAPI:　　<--- 処理が上より早いはず
+ * 	struct workqueue_struct *create_workqueue(const char *name);
+ *
+ * 	int queue_work(struct workqueue_struct *wq, struct work_struct *work);
+ * 	int queue_delayed_work(struct workqueue_struct *wq, struct work_struct *work, unsigned long delay);
+ *
+ * 	void flush_workqueue(struct workqueue_struct *wq);
+ * 	void destroy_workqueue(struct workqueue_struct *wq);
+ *
  *
  * Sample:
  *
