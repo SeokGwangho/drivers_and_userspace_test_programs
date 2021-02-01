@@ -20,6 +20,12 @@
  * 	wait_event_interruptible(queue, condition)			<->	wake_up_interruptible(wait_queue_head_t *queue)
  * 	wait_event_interruptible_timeout(queue, condition, timeout)	<->	wake_up_interruptible(wait_queue_head_t *queue)
  * 
+ * 
+ * test:
+ * 	insmod
+ *      cat /dev/sample
+ *      dmesg
+ * 
  */
 
 #include <linux/module.h>
