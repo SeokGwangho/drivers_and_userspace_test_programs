@@ -11,14 +11,14 @@ int main(int argc, char *argv[])
 {
 	struct hostent *h;
 	char hostname[40];
-	printf("请输入域名/n");
+	printf("Please input the domain name:/n");
 
 	scanf("%s",hostname);
 	getchar();
 
 	if((h=gethostbyname(hostname))==NULL)
 	{
-		fprintf(stderr,"不能得到IP/n");
+		fprintf(stderr,"Unable to find IP address/n");
 		exit(1);
 	}
 
