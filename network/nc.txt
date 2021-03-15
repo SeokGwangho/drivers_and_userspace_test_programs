@@ -37,7 +37,7 @@ So we see that netcat utility can be used in the client server socket communicat
 
 
 ---------------------------------------------------
-Use Netcat to Transfer Files
+2. Use Netcat to Transfer Files
 ---------------------------------------------------
 The netcat utility can also be used to transfer files.
 At the client side, suppose we have a file named ‘testfile’ containing :
