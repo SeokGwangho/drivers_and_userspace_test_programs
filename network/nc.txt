@@ -1,0 +1,50 @@
+Netcat(NC) Command Examples
+
+---------------------------------------------------
+server
+---------------------------------------------------
+//start server
+ $ ./tcp_server 8888
+
+
+
+---------------------------------------------------
+client
+---------------------------------------------------
+//connect to server
+$ nc 192.168.1.84 8888
+
+//input something
+abcdefg
+
+
+
+
+$ nc -l 2389
+$ nc localhost 2389
+HI, server
+
+---------------------------------------------------
+Use Netcat to Transfer Files
+---------------------------------------------------
+The netcat utility can also be used to transfer files.
+At the client side, suppose we have a file named ‘testfile’ containing :
+
+$ cat testfile
+hello test
+
+
+
+and at the server side we have an empty file ‘test’
+Now, we run the server as :
+  $ nc -l 2389 > test
+
+and run the client as :
+  cat testfile | nc localhost 2389
+  
+Now, when we see the ‘test’ file at the server end, we see :
+
+$ cat test
+hello test
+
+So we see that the file data was transfered from client to server.
