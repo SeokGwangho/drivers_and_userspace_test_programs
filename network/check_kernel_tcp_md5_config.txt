@@ -1,0 +1,8 @@
+
+//How do I enable TCP MD5 Signatures on Ubuntu?
+
+$ grep MD5SIG /boot/config-`uname -r`
+CONFIG_TCP_MD5SIG=y
+
+
+
